@@ -1427,6 +1427,36 @@ func updateOrdererChannelConfigTx(currentConfigTX configtx.ConfigTx, newConfigTx
 				}
 			}
 		}
+		err = currentConfigTX.Orderer().EtcdRaftOptions().SetElectionInterval(
+			newConfigTx.Orderer.EtcdRaft.Options.ElectionTick,
+		)
+		if err != nil {
+			return errors.Wrapf(err, "failed to set election interval")
+		}
+		err = currentConfigTX.Orderer().EtcdRaftOptions().SetHeartbeatTick(
+			newConfigTx.Orderer.EtcdRaft.Options.HeartbeatTick,
+		)
+		if err != nil {
+			return errors.Wrapf(err, "failed to set heartbeat tick")
+		}
+		err = currentConfigTX.Orderer().EtcdRaftOptions().SetTickInterval(
+			newConfigTx.Orderer.EtcdRaft.Options.TickInterval,
+		)
+		if err != nil {
+			return errors.Wrapf(err, "failed to set tick interval")
+		}
+		err = currentConfigTX.Orderer().EtcdRaftOptions().SetSnapshotIntervalSize(
+			newConfigTx.Orderer.EtcdRaft.Options.SnapshotIntervalSize,
+		)
+		if err != nil {
+			return errors.Wrapf(err, "failed to set snapshot interval size")
+		}
+		err = currentConfigTX.Orderer().EtcdRaftOptions().SetMaxInflightBlocks(
+			newConfigTx.Orderer.EtcdRaft.Options.MaxInflightBlocks,
+		)
+		if err != nil {
+			return errors.Wrapf(err, "failed to set max inflight blocks")
+		}
 	} else if newConfigTx.Orderer.OrdererType == orderer.ConsensusTypeBFT {
 		err = currentConfigTX.Orderer().SetConfiguration(newConfigTx.Orderer)
 		if err != nil {
@@ -1583,6 +1613,7 @@ func updateOrdererChannelConfigTx(currentConfigTX configtx.ConfigTx, newConfigTx
 	if err != nil {
 		return errors.Wrapf(err, "failed to set preferred max bytes")
 	}
+
 	err = currentConfigTX.Orderer().SetBatchTimeout(newConfigTx.Orderer.BatchTimeout)
 	if err != nil {
 		return errors.Wrapf(err, "failed to set batch timeout")

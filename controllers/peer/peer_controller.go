@@ -34,6 +34,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/kfsoftware/hlf-operator/controllers/certs"
+	"github.com/kfsoftware/hlf-operator/controllers/certs_vault"
 	"github.com/kfsoftware/hlf-operator/controllers/utils"
 	hlfv1alpha1 "github.com/kfsoftware/hlf-operator/pkg/apis/hlf.kungfusoftware.es/v1alpha1"
 	"helm.sh/helm/v3/pkg/action"
@@ -824,27 +825,8 @@ func getExistingSignCrypto(client *kubernetes.Clientset, chartName string, names
 }
 
 func CreateTLSCryptoMaterial(conf *hlfv1alpha1.FabricPeer, caName string, caurl string, enrollID string, enrollSecret string, tlsCertString string, hosts []string) (*x509.Certificate, *ecdsa.PrivateKey, *x509.Certificate, error) {
-	tlsCert, tlsKey, tlsRootCert, err := certs.EnrollUser(certs.EnrollUserRequest{
-		TLSCert:    tlsCertString,
-		URL:        caurl,
-		Name:       caName,
-		MSPID:      conf.Spec.MspID,
-		User:       enrollID,
-		Secret:     enrollSecret,
-		Hosts:      hosts,
-		CN:         "",
-		Profile:    "tls",
-		Attributes: nil,
-	})
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	return tlsCert, tlsKey, tlsRootCert, nil
-}
-
-func CreateTLSOPSCryptoMaterial(conf *hlfv1alpha1.FabricPeer, caName string, caurl string, enrollID string, enrollSecret string, tlsCertString string, hosts []string) (*x509.Certificate, *ecdsa.PrivateKey, *x509.Certificate, error) {
-	tlsCert, tlsKey, tlsRootCert, err := certs.EnrollUser(
-		certs.EnrollUserRequest{
+	if conf.Spec.CredentialStore == hlfv1alpha1.CredentialStoreKubernetes {
+		tlsCert, tlsKey, tlsRootCert, err := certs.EnrollUser(certs.EnrollUserRequest{
 			TLSCert:    tlsCertString,
 			URL:        caurl,
 			Name:       caName,
@@ -855,27 +837,111 @@ func CreateTLSOPSCryptoMaterial(conf *hlfv1alpha1.FabricPeer, caName string, cau
 			CN:         "",
 			Profile:    "tls",
 			Attributes: nil,
-		},
-	)
-	if err != nil {
-		return nil, nil, nil, err
+		})
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		return tlsCert, tlsKey, tlsRootCert, nil
+	} else if conf.Spec.CredentialStore == hlfv1alpha1.CredentialStoreVault {
+		tlsCert, tlsKey, tlsRootCert, err := certs_vault.EnrollUser(conf.Spec.Vault, certs_vault.EnrollUserRequest{
+			TLSCert:    tlsCertString,
+			URL:        caurl,
+			Name:       caName,
+			MSPID:      conf.Spec.MspID,
+			User:       enrollID,
+			Secret:     enrollSecret,
+			Hosts:      hosts,
+			CN:         "",
+			Profile:    "tls",
+			Attributes: nil,
+		})
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		return tlsCert, tlsKey, tlsRootCert, nil
+	} else {
+		return nil, nil, nil, errors.New("not implemented")
 	}
-	return tlsCert, tlsKey, tlsRootCert, nil
+}
+
+func CreateTLSOPSCryptoMaterial(conf *hlfv1alpha1.FabricPeer, caName string, caurl string, enrollID string, enrollSecret string, tlsCertString string, hosts []string) (*x509.Certificate, *ecdsa.PrivateKey, *x509.Certificate, error) {
+	if conf.Spec.CredentialStore == hlfv1alpha1.CredentialStoreKubernetes {
+		tlsCert, tlsKey, tlsRootCert, err := certs.EnrollUser(
+			certs.EnrollUserRequest{
+				TLSCert:    tlsCertString,
+				URL:        caurl,
+				Name:       caName,
+				MSPID:      conf.Spec.MspID,
+				User:       enrollID,
+				Secret:     enrollSecret,
+				Hosts:      hosts,
+				CN:         "",
+				Profile:    "tls",
+				Attributes: nil,
+			},
+		)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		return tlsCert, tlsKey, tlsRootCert, nil
+	} else if conf.Spec.CredentialStore == hlfv1alpha1.CredentialStoreVault {
+		tlsCert, tlsKey, tlsRootCert, err := certs_vault.EnrollUser(
+			conf.Spec.Vault,
+			certs_vault.EnrollUserRequest{
+				TLSCert:    tlsCertString,
+				URL:        caurl,
+				Name:       caName,
+				MSPID:      conf.Spec.MspID,
+				User:       enrollID,
+				Secret:     enrollSecret,
+				Hosts:      hosts,
+				CN:         "",
+				Profile:    "tls",
+				Attributes: nil,
+			},
+		)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		return tlsCert, tlsKey, tlsRootCert, nil
+	} else {
+		return nil, nil, nil, errors.New(fmt.Sprintf("not implemented for credential store %s", &conf.Spec.CredentialStore))
+	}
 }
 
 func CreateSignCryptoMaterial(conf *hlfv1alpha1.FabricPeer, caName string, caurl string, enrollID string, enrollSecret string, tlsCertString string) (*x509.Certificate, *ecdsa.PrivateKey, *x509.Certificate, error) {
-	tlsCert, tlsKey, tlsRootCert, err := certs.EnrollUser(certs.EnrollUserRequest{
-		TLSCert: tlsCertString,
-		URL:     caurl,
-		Name:    caName,
-		MSPID:   conf.Spec.MspID,
-		User:    enrollID,
-		Secret:  enrollSecret,
-	})
-	if err != nil {
-		return nil, nil, nil, err
+	if conf.Spec.CredentialStore == hlfv1alpha1.CredentialStoreKubernetes {
+		tlsCert, tlsKey, tlsRootCert, err := certs.EnrollUser(certs.EnrollUserRequest{
+			TLSCert: tlsCertString,
+			URL:     caurl,
+			Name:    caName,
+			MSPID:   conf.Spec.MspID,
+			User:    enrollID,
+			Secret:  enrollSecret,
+		})
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		return tlsCert, tlsKey, tlsRootCert, nil
+	} else if conf.Spec.CredentialStore == hlfv1alpha1.CredentialStoreVault {
+		tlsCert, tlsKey, tlsRootCert, err := certs_vault.EnrollUser(
+			conf.Spec.Vault,
+			certs_vault.EnrollUserRequest{
+				TLSCert: tlsCertString,
+				URL:     caurl,
+				Name:    caName,
+				MSPID:   conf.Spec.MspID,
+				User:    enrollID,
+				Secret:  enrollSecret,
+			},
+		)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		return tlsCert, tlsKey, tlsRootCert, nil
+	} else {
+		return nil, nil, nil, errors.New(fmt.Sprintf("not implemented for credential store %s", &conf.Spec.CredentialStore))
 	}
-	return tlsCert, tlsKey, tlsRootCert, nil
 }
 
 func ReenrollSignCryptoMaterial(
@@ -887,6 +953,7 @@ func ReenrollSignCryptoMaterial(
 	signCertPem string,
 	privateKey *ecdsa.PrivateKey,
 ) (*x509.Certificate, *ecdsa.PrivateKey, *x509.Certificate, error) {
+	// TODO: do the same as other crypto materials, if vault, invoke certs_vault and otherwise certs
 	signCert, signRootCert, err := certs.ReenrollUser(
 		certs.ReenrollUserRequest{
 			TLSCert:  tlsCertString,
@@ -914,6 +981,7 @@ func ReenrollTLSCryptoMaterial(
 	tlsCertPem string,
 	tlsKey *ecdsa.PrivateKey,
 ) (*x509.Certificate, *ecdsa.PrivateKey, *x509.Certificate, error) {
+	// TODO: do the same as other crypto materials, if vault, invoke certs_vault and otherwise certs
 	tlsCert, tlsRootCert, err := certs.ReenrollUser(
 		certs.ReenrollUserRequest{
 			TLSCert:    tlsCertString,

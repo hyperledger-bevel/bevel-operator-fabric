@@ -70,6 +70,7 @@ func ParseECDSAPrivateKey(contents []byte) (*ecdsa.PrivateKey, error) {
 	}
 	return ecdsaKey, nil
 }
+
 func ParseX509Certificate(contents []byte) (*x509.Certificate, error) {
 	if len(contents) == 0 {
 		return nil, errors.New("certificate pem is empty")
@@ -91,7 +92,6 @@ func EncodeX509Certificate(crt *x509.Certificate) []byte {
 		Bytes: crt.Raw,
 	})
 	return pemPk
-
 }
 
 func EncodePrivateKey(key interface{}) ([]byte, error) {

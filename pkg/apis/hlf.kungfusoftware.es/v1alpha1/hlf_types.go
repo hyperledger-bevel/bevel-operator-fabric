@@ -265,6 +265,14 @@ type FabricPeerSpec struct {
 	// +optional
 	// +kubebuilder:validation:Default={}
 	Env []corev1.EnvVar `json:"env"`
+
+	// +kubebuilder:default:="kubernetes"
+	CredentialStore CredentialStore `json:"credentialStore"`
+
+	// +optional
+	// +kubebuilder:validation:Optional
+	// +nullable
+	Vault *VaultSpecConf `json:"vault"`
 }
 type FabricPeerResources struct {
 	Peer      *corev1.ResourceRequirements `json:"peer"`
@@ -725,6 +733,13 @@ type FabricCADatabase struct {
 	Datasource string `json:"datasource"`
 }
 
+type CredentialStore string
+
+const (
+	CredentialStoreKubernetes = "kubernetes"
+	CredentialStoreVault      = "vault"
+)
+
 // FabricCASpec defines the desired state of FabricCA
 type FabricCASpec struct {
 	// +nullable
@@ -796,11 +811,24 @@ type FabricCASpec struct {
 	Storage   Storage                     `json:"storage"`
 	Metrics   FabricCAMetrics             `json:"metrics"`
 
+	// +kubebuilder:default:="kubernetes"
+	CredentialStore CredentialStore `json:"credentialStore"`
+
+	// +optional
+	// +kubebuilder:validation:Optional
+	// +nullable
+	Vault *VaultSpecConf `json:"vault"`
+
 	// +nullable
 	// +kubebuilder:validation:Optional
 	// +optional
 	// +kubebuilder:validation:Default={}
 	Env []corev1.EnvVar `json:"env"`
+}
+
+type VaultSpecConf struct {
+	URL   string `json:"url"`
+	Token string `json:"token"`
 }
 
 type FabricCATLSConf struct {

@@ -13,13 +13,14 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"sort"
+
 	"github.com/go-logr/logr"
 	"github.com/kfsoftware/hlf-operator/controllers/hlfmetrics"
 	"github.com/kfsoftware/hlf-operator/pkg/status"
 	"helm.sh/helm/v3/pkg/cli"
 	"helm.sh/helm/v3/pkg/release"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
-	"sort"
 
 	"math/big"
 	"net"
@@ -188,7 +189,45 @@ func getIPAddresses(spect hlfv1alpha1.FabricCASpec) []net.IP {
 	}
 	return ipAddresses
 }
-func CreateDefaultTLSCA(spec hlfv1alpha1.FabricCASpec) (*x509.Certificate, *ecdsa.PrivateKey, error) {
+
+func createVaultClient(spec hlfv1alpha1.FabricCASpec) (*vault.Client, error) {
+	if spec.CredentialStore != hlfv1alpha1.CredentialStoreVault {
+		return nil, errors.New("Credential store is not 'vault'.")
+	}
+}
+
+func CreateDefaultTLSWithVault(spec hlfv1alpha1.FabricCASpec) (*x509.Certificate, *ecdsa.PrivateKey, error) {
+	// create TLS Cert self signed in Hashicorp Vault
+
+	// export TLS Cert and key from Hashicorp vault and return it
+	return crt, caPrivKey, nil
+}
+
+func CreateDefaultCACommon(spec hlfv1alpha1.FabricCASpec, conf hlfv1alpha1.FabricCAItemConf) (*x509.Certificate, *ecdsa.PrivateKey, error) {
+	if spec.CredentialStore == hlfv1alpha1.CredentialStoreKubernetes {
+		return CreateDefaultCA(conf)
+	} else if spec.CredentialStore == hlfv1alpha1.CredentialStoreVault {
+		return CreateDefaultCAWithVault(conf)
+	} else {
+		return nil, nil, errors.New(
+			fmt.Sprintf("invalid credential store %s", spec.CredentialStore),
+		)
+	}
+}
+
+func CreateDefaultTLSCertCommon(spec hlfv1alpha1.FabricCASpec) (*x509.Certificate, *ecdsa.PrivateKey, error) {
+	if spec.CredentialStore == hlfv1alpha1.CredentialStoreKubernetes {
+		return CreateDefaultTLSCert(spec)
+	} else if spec.CredentialStore == hlfv1alpha1.CredentialStoreVault {
+		return CreateDefaultTLSWithVault(spec)
+	} else {
+		return nil, nil, errors.New(
+			fmt.Sprintf("invalid credential store %s", spec.CredentialStore),
+		)
+	}
+}
+
+func CreateDefaultTLSCert(spec hlfv1alpha1.FabricCASpec) (*x509.Certificate, *ecdsa.PrivateKey, error) {
 	serialNumberLimit := new(big.Int).Lsh(big.NewInt(1), 128)
 	serialNumber, err := rand.Int(rand.Reader, serialNumberLimit)
 	if err != nil {
@@ -272,6 +311,14 @@ func CreateDefaultCA(conf hlfv1alpha1.FabricCAItemConf) (*x509.Certificate, *ecd
 		return nil, nil, err
 	}
 	return crt, caPrivKey, nil
+}
+
+func CreateDefaultCAWithVault(spec hlfv1alpha1.FabricCASpec, conf hlfv1alpha1.FabricCAItemConf) (*x509.Certificate, *ecdsa.PrivateKey, error) {
+	// create CA in Hashicorp Vault
+
+	// export CA from Hashicorp vault and return it
+	// return crt, caPrivKey, nil
+	return nil, nil, errors.New("not implemented yet")
 }
 
 func newActionCfg(log logr.Logger, clusterCfg *rest.Config, namespace string) (*action.Configuration, error) {
@@ -474,7 +521,7 @@ func GetConfig(conf *hlfv1alpha1.FabricCA, client *kubernetes.Clientset, chartNa
 	spec := conf.Spec
 	tlsCert, tlsKey, err := getExistingTLSCrypto(client, chartName, namespace)
 	if err != nil {
-		tlsCert, tlsKey, err = CreateDefaultTLSCA(spec)
+		tlsCert, tlsKey, err = CreateDefaultTLSCertCommon(spec)
 		if err != nil {
 			return nil, err
 		}
@@ -482,7 +529,7 @@ func GetConfig(conf *hlfv1alpha1.FabricCA, client *kubernetes.Clientset, chartNa
 		certNeedsToBeRenewed := doesCertNeedsToBeRenewed(tlsCert, conf)
 		log.Infof("FabricCA, name=%s namespace=%s TLS certs needs to be renewed: %v", conf.Name, conf.Namespace, certNeedsToBeRenewed)
 		if certNeedsToBeRenewed {
-			tlsCert, tlsKey, err = CreateDefaultTLSCA(spec)
+			tlsCert, tlsKey, err = CreateDefaultTLSCertCommon(spec)
 			if err != nil {
 				return nil, err
 			}
@@ -499,7 +546,7 @@ func GetConfig(conf *hlfv1alpha1.FabricCA, client *kubernetes.Clientset, chartNa
 		} else if conf.Spec.CA.CA != nil && conf.Spec.CA.CA.Key != "" && conf.Spec.CA.CA.Cert != "" {
 			signCert, signKey, err = parseCrypto(conf.Spec.CA.CA.Key, conf.Spec.CA.CA.Cert)
 		} else {
-			signCert, signKey, err = CreateDefaultCA(spec.CA)
+			signCert, signKey, err = CreateDefaultCACommon(spec, spec.CA)
 		}
 		if err != nil {
 			return nil, err
@@ -516,7 +563,7 @@ func GetConfig(conf *hlfv1alpha1.FabricCA, client *kubernetes.Clientset, chartNa
 		} else if conf.Spec.TLSCA.CA != nil && conf.Spec.TLSCA.CA.Key != "" && conf.Spec.TLSCA.CA.Cert != "" {
 			caTLSSignCert, caTLSSignKey, err = parseCrypto(conf.Spec.TLSCA.CA.Key, conf.Spec.TLSCA.CA.Cert)
 		} else {
-			caTLSSignCert, caTLSSignKey, err = CreateDefaultCA(spec.TLSCA)
+			caTLSSignCert, caTLSSignKey, err = CreateDefaultCACommon(spec, spec.TLSCA)
 		}
 		if err != nil {
 			return nil, err
@@ -892,8 +939,8 @@ func Reconcile(
 		reqLogger.Error(err, "Failed to get CA.")
 		return ctrl.Result{}, err
 	}
-	isMemcachedMarkedToBeDeleted := hlf.GetDeletionTimestamp() != nil
-	if isMemcachedMarkedToBeDeleted {
+	isFabricCAMarkedToBeDeleted := hlf.GetDeletionTimestamp() != nil
+	if isFabricCAMarkedToBeDeleted {
 		if utils.Contains(hlf.GetFinalizers(), caFinalizer) {
 			if err := r.finalizeCA(reqLogger, hlf); err != nil {
 				return ctrl.Result{}, err

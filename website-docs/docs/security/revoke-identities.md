@@ -3,6 +3,8 @@ id: revoke-identities
 title: Revoking Identity Credentials
 ---
 
+> **Note:** This feature requires HLF Operator version 1.12.0 or later.
+
 # Revoking Identity Credentials
 
 This guide walks you through the process of revoking identity credentials in a Hyperledger Fabric network managed by HLF Operator. Identity revocation is a critical security operation when credentials are compromised or when users leave your organization.

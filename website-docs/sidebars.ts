@@ -38,6 +38,9 @@ const sidebars: SidebarsConfig = {
 			"chaincode-development/architecture",
 			"chaincode-development/getting-started",
 		],
+		"Security": [
+			"security/revoke-identities",
+		],
 		"Chaincode deployment": [
 			"chaincode-deployment/getting-started",
 			"chaincode-deployment/external-chaincode-as-a-service",

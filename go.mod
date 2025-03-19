@@ -1,6 +1,6 @@
 module github.com/kfsoftware/hlf-operator
 
-go 1.22.5
+go 1.23.5
 
 require (
 	github.com/IBM/idemix v0.0.0-20220113150823-80dd4cb2d74e
@@ -233,5 +233,5 @@ require (
 
 replace (
 	github.com/hyperledger/fabric-config => github.com/kfsoftware/fabric-config v0.0.0-20240819184344-a0b16ca530c2
-	github.com/hyperledger/fabric-sdk-go => github.com/kfsoftware/fabric-sdk-go v0.0.0-20240114221414-98466038585d
+	github.com/hyperledger/fabric-sdk-go => github.com/kfsoftware/fabric-sdk-go v0.0.0-20250318193343-db7cb6f42306
 )

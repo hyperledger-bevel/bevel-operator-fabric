@@ -827,8 +827,45 @@ type FabricCASpec struct {
 }
 
 type VaultSpecConf struct {
-	URL   string `json:"url"`
-	Token string `json:"token"`
+	// URL of the Vault server
+	URL string `json:"url"`
+	// Token for direct authentication to Vault
+	TokenSecretRef *VaultSecretRef `json:"tokenSecretRef,omitempty"`
+	// Role for Kubernetes auth method
+	Role string `json:"role"`
+	// Path to the secret in Vault
+	SecretIdSecretRef *VaultSecretRef `json:"secretIdSecretRef,omitempty"`
+	// Kubernetes service account token path for auth
+	// +optional
+	ServiceAccountTokenPath string `json:"serviceAccountTokenPath"`
+	// Kubernetes auth mount path
+	// +kubebuilder:default:="kubernetes"
+	AuthPath string `json:"authPath"`
+	// Server Certificate for TLS authentication
+	// +optional
+	ServerCert string `json:"serverCert"`
+	// Server Name for TLS authentication
+	// +optional
+	ServerName string `json:"serverName"`
+
+	// Client certificate for TLS authentication
+	// +optional
+	ClientCert string `json:"clientCert"`
+	// Client key for TLS authentication
+	// +optional
+	ClientKeySecretRef *VaultSecretRef `json:"clientKey"`
+	// CA certificate for TLS verification
+	// +optional
+	CACert string `json:"caCert"`
+	// Skip TLS verification
+	// +kubebuilder:default:=false
+	TLSSkipVerify bool `json:"tlsSkipVerify"`
+	// Timeout for Vault operations
+	// +kubebuilder:default:="30s"
+	Timeout string `json:"timeout"`
+	// Maximum number of retries for Vault operations
+	// +kubebuilder:default:=2
+	MaxRetries int `json:"maxRetries"`
 }
 
 type FabricCATLSConf struct {
@@ -956,6 +993,12 @@ type SecretRef struct {
 	// +nullable
 	// +kubebuilder:validation:Optional
 	Name string `json:"name"`
+}
+
+type VaultSecretRef struct {
+	Name      string `json:"name"`
+	Namespace string `json:"namespace"`
+	Key       string `json:"key"`
 }
 type SecretRefNSKey struct {
 	Name      string `json:"name"`

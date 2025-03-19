@@ -1,22 +1,22 @@
 package certs_vault
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/x509"
 	"fmt"
-	"io/ioutil"
-	"path/filepath"
+	"time"
 
-	"github.com/hyperledger/fabric/bccsp"
-	bccsputils "github.com/hyperledger/fabric/bccsp/utils"
+	"github.com/hashicorp/vault-client-go"
 	"github.com/kfsoftware/hlf-operator/controllers/utils"
 	"github.com/kfsoftware/hlf-operator/internal/github.com/hyperledger/fabric-ca/api"
 	"github.com/kfsoftware/hlf-operator/internal/github.com/hyperledger/fabric-ca/lib"
-	"github.com/kfsoftware/hlf-operator/internal/github.com/hyperledger/fabric-ca/lib/client/credential"
-	fabricx509 "github.com/kfsoftware/hlf-operator/internal/github.com/hyperledger/fabric-ca/lib/client/credential/x509"
 	hlfv1alpha1 "github.com/kfsoftware/hlf-operator/pkg/apis/hlf.kungfusoftware.es/v1alpha1"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 )
 
 type FabricPem struct {
@@ -128,7 +128,18 @@ type RevokeUserRequest struct {
 }
 
 func RevokeUser(params RevokeUserRequest) error {
-	caClient, err := GetClient(FabricCAParams{
+	// Get a Kubernetes clientset
+	config, err := rest.InClusterConfig()
+	if err != nil {
+		return errors.Wrap(err, "failed to get in-cluster config")
+	}
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return errors.Wrap(err, "failed to create Kubernetes client")
+	}
+
+	// Convert params using the helper function and get the client
+	vaultConf := convertToVaultConfig(FabricCAParams{
 		TLSCert:      params.TLSCert,
 		URL:          params.URL,
 		Name:         params.Name,
@@ -136,19 +147,16 @@ func RevokeUser(params RevokeUserRequest) error {
 		EnrollID:     params.EnrollID,
 		EnrollSecret: params.EnrollSecret,
 	})
+
+	vaultClient, err := GetClient(vaultConf, clientset)
 	if err != nil {
 		return err
 	}
-	myIdentity, err := caClient.LoadMyIdentity()
-	if err != nil {
-		return err
-	}
-	result, err := myIdentity.Revoke(params.RevocationRequest)
-	if err != nil {
-		return err
-	}
-	logrus.Infof("Revoked user %v", result.RevokedCerts)
-	return nil
+	_ = vaultClient
+
+	// This function expected to use a Fabric CA client, not a Vault client
+	// We need to implement the equivalent functionality using Vault
+	return fmt.Errorf("RevokeUser functionality not implemented for Vault yet")
 }
 
 type RegisterUserRequest struct {
@@ -165,7 +173,18 @@ type RegisterUserRequest struct {
 }
 
 func RegisterUser(params RegisterUserRequest) (string, error) {
-	caClient, err := GetClient(FabricCAParams{
+	// Get a Kubernetes clientset
+	config, err := rest.InClusterConfig()
+	if err != nil {
+		return "", errors.Wrap(err, "failed to get in-cluster config")
+	}
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to create Kubernetes client")
+	}
+
+	// Convert params using the helper function and get the client
+	vaultConf := convertToVaultConfig(FabricCAParams{
 		TLSCert:      params.TLSCert,
 		URL:          params.URL,
 		Name:         params.Name,
@@ -173,188 +192,203 @@ func RegisterUser(params RegisterUserRequest) (string, error) {
 		EnrollID:     params.EnrollID,
 		EnrollSecret: params.EnrollSecret,
 	})
+
+	vaultClient, err := GetClient(vaultConf, clientset)
 	if err != nil {
 		return "", err
 	}
-	enrollResponse, err := caClient.Enroll(&api.EnrollmentRequest{
-		Name:     params.EnrollID,
-		Secret:   params.EnrollSecret,
-		CAName:   params.Name,
-		AttrReqs: []*api.AttributeRequest{},
-		Type:     params.Type,
-	})
-	if err != nil {
-		return "", err
-	}
-	secret, err := enrollResponse.Identity.Register(&api.RegistrationRequest{
-		Name:           params.User,
-		Type:           params.Type,
-		MaxEnrollments: -1,
-		Affiliation:    "",
-		Attributes:     params.Attributes,
-		CAName:         params.Name,
-		Secret:         params.Secret,
-	})
-	if err != nil {
-		return "", err
-	}
-	return secret.Secret, nil
+	_ = vaultClient
+	// This function expected to use a Fabric CA client, not a Vault client
+	// We need to implement the equivalent functionality using Vault
+	return "", fmt.Errorf("RegisterUser functionality not implemented for Vault yet")
 }
 
 func GetCAInfo(params GetCAInfoRequest) (*lib.GetCAInfoResponse, error) {
-	caClient, err := GetClient(FabricCAParams{
+	// Get a Kubernetes clientset
+	config, err := rest.InClusterConfig()
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to get in-cluster config")
+	}
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to create Kubernetes client")
+	}
+
+	// Convert params using the helper function and get the client
+	vaultConf := convertToVaultConfig(FabricCAParams{
 		TLSCert: params.TLSCert,
 		URL:     params.URL,
 		Name:    params.Name,
 		MSPID:   params.MSPID,
 	})
+
+	vaultClient, err := GetClient(vaultConf, clientset)
 	if err != nil {
 		return nil, err
 	}
-	caInfo, err := caClient.GetCAInfo(&api.GetCAInfoRequest{})
-	if err != nil {
-		return nil, err
-	}
-	return caInfo, nil
+	_ = vaultClient
+	// This function expected to use a Fabric CA client, not a Vault client
+	// We need to implement the equivalent functionality using Vault
+	return nil, fmt.Errorf("GetCAInfo functionality not implemented for Vault yet")
 }
 
 func ReenrollUser(params ReenrollUserRequest, certPem string, ecdsaKey *ecdsa.PrivateKey) (*x509.Certificate, *x509.Certificate, error) {
-	caClient, err := GetClient(FabricCAParams{
-		TLSCert: params.TLSCert,
-		URL:     params.URL,
-		Name:    params.Name,
-		MSPID:   params.MSPID,
-	})
+	// Get a Kubernetes clientset
+	config, err := rest.InClusterConfig()
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, errors.Wrap(err, "failed to get in-cluster config")
 	}
-	priv, err := bccsputils.PrivateKeyToDER(ecdsaKey)
+	clientset, err := kubernetes.NewForConfig(config)
 	if err != nil {
-		return nil, nil, errors.WithMessage(err, fmt.Sprintf("Failed to convert ECDSA private key for '%v'", ecdsaKey))
+		return nil, nil, errors.Wrap(err, "failed to create Kubernetes client")
 	}
-	bccspKey, err := caClient.GetCSP().KeyImport(priv, &bccsp.ECDSAPrivateKeyImportOpts{Temporary: true})
-	if err != nil {
-		return nil, nil, errors.Wrapf(err, "Error importing private key")
-	}
-	signer, err := fabricx509.NewSigner(bccspKey, []byte(certPem))
-	if err != nil {
-		return nil, nil, errors.Wrapf(err, "Error creating signer")
-	}
-	cred := fabricx509.NewCredential(
-		"",
-		"",
-		caClient,
-	)
-	err = cred.SetVal(signer)
-	if err != nil {
-		return nil, nil, errors.Wrapf(err, "Error setting credential value")
-	}
-	id := lib.NewIdentity(
-		caClient,
-		params.EnrollID,
-		[]credential.Credential{
-			cred,
-		},
-	)
-	reuseKey := true
-	reenrollResponse, err := id.Reenroll(&api.ReenrollmentRequest{
-		CAName:   params.Name,
-		AttrReqs: params.Attributes,
-		Profile:  params.Profile,
-		Label:    "",
-		CSR: &api.CSRInfo{
-			Hosts: params.Hosts,
-			CN:    params.CN,
-			KeyRequest: &api.KeyRequest{
-				ReuseKey: reuseKey,
-			},
-		},
-	})
-	if err != nil {
-		return nil, nil, errors.Wrapf(err, "Error reenrolling user '%s'", params.EnrollID)
-	}
-	userCrt := reenrollResponse.Identity.GetECert().GetX509Cert()
-	if err != nil {
-		return nil, nil, err
-	}
-	info, err := caClient.GetCAInfo(&api.GetCAInfoRequest{
-		CAName: params.Name,
-	})
-	if err != nil {
-		return nil, nil, err
-	}
-	rootCrt, err := utils.ParseX509Certificate(info.CAChain)
-	if err != nil {
-		return nil, nil, err
-	}
-	return userCrt, rootCrt, nil
-}
-func readKey(client *lib.Client) (*ecdsa.PrivateKey, error) {
-	keystoreDir := filepath.Join(client.HomeDir, "msp", "keystore")
-	files, err := ioutil.ReadDir(keystoreDir)
-	if err != nil {
-		return nil, err
-	}
-	if len(files) == 0 {
-		return nil, errors.New("no key found in keystore")
-	}
-	if len(files) > 1 {
-		return nil, errors.New("multiple keys found in keystore")
-	}
-	keyPath := filepath.Join(keystoreDir, files[0].Name())
-	keyBytes, err := ioutil.ReadFile(keyPath)
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed to read key file %s", keyPath)
-	}
-	ecdsaKey, err := utils.ParseECDSAPrivateKey(keyBytes)
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed to parse key file %s", keyPath)
-	}
-	return ecdsaKey, nil
-}
-func EnrollUser(vaultConf *hlfv1alpha1.VaultSpecConf, params EnrollUserRequest) (*x509.Certificate, *ecdsa.PrivateKey, *x509.Certificate, error) {
-	caClient, err := GetClient(FabricCAParams{
-		TLSCert: params.TLSCert,
-		URL:     params.URL,
-		Name:    params.Name,
-		MSPID:   params.MSPID,
-	})
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	enrollResponse, err := caClient.Enroll(&api.EnrollmentRequest{
-		Name:     params.User,
-		Secret:   params.Secret,
-		CAName:   params.Name,
-		AttrReqs: params.Attributes,
-		Profile:  params.Profile,
-		Label:    "",
-		Type:     "x509",
-		CSR: &api.CSRInfo{
-			Hosts: params.Hosts,
-			CN:    params.CN,
-		},
-	})
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	userCrt := enrollResponse.Identity.GetECert().GetX509Cert()
 
-	info, err := caClient.GetCAInfo(&api.GetCAInfoRequest{
-		CAName: params.Name,
+	// Convert params using the helper function and get the client
+	vaultConf := convertToVaultConfig(FabricCAParams{
+		TLSCert: params.TLSCert,
+		URL:     params.URL,
+		Name:    params.Name,
+		MSPID:   params.MSPID,
 	})
+
+	vaultClient, err := GetClient(vaultConf, clientset)
+	if err != nil {
+		return nil, nil, err
+	}
+	_ = vaultClient
+	// This function expected to use a Fabric CA client, not a Vault client
+	// We need to implement the equivalent functionality using Vault
+	return nil, nil, fmt.Errorf("ReenrollUser functionality not implemented for Vault yet")
+}
+
+func EnrollUser(vaultConf *hlfv1alpha1.VaultSpecConf, params EnrollUserRequest) (*x509.Certificate, *ecdsa.PrivateKey, *x509.Certificate, error) {
+	// Get a Kubernetes clientset
+	config, err := rest.InClusterConfig()
+	if err != nil {
+		return nil, nil, nil, errors.Wrap(err, "failed to get in-cluster config")
+	}
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return nil, nil, nil, errors.Wrap(err, "failed to create Kubernetes client")
+	}
+
+	// Use the provided VaultSpecConf to get a client
+	vaultClient, err := GetClient(vaultConf, clientset)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	rootCrt, err := utils.ParseX509Certificate(info.CAChain)
-	if err != nil {
-		return nil, nil, nil, err
+
+	// Implementation for Vault would need to:
+	// 1. Generate or retrieve certificates and keys from Vault
+	// 2. Return appropriate certificate and key objects
+
+	ctx := context.Background()
+
+	// Example path where enrollment certificates might be stored
+	// This is just a placeholder - adjust to your actual Vault structure
+	secretPath := fmt.Sprintf("secret/data/hlf-ca/%s/users/%s", params.MSPID, params.User)
+
+	// Check if the user already has certificates in Vault
+	resp, err := vaultClient.Secrets.KvV2Read(ctx, secretPath, nil)
+	if err == nil && resp != nil {
+		// User exists, try to retrieve the certificates
+		logrus.Infof("Found existing enrollment for user %s in Vault", params.User)
+
+		// Extract certificate and key from response
+		var certPEM, keyPEM string
+
+		if certData, exists := resp.Data.Data["tls.crt"]; exists && certData != nil {
+			if certStr, ok := certData.(string); ok {
+				certPEM = certStr
+			}
+		}
+
+		if keyData, exists := resp.Data.Data["tls.key"]; exists && keyData != nil {
+			if keyStr, ok := keyData.(string); ok {
+				keyPEM = keyStr
+			}
+		}
+
+		if certPEM != "" && keyPEM != "" {
+			// Parse the certificate and key
+			userCrt, err := utils.ParseX509Certificate([]byte(certPEM))
+			if err != nil {
+				return nil, nil, nil, errors.Wrap(err, "failed to parse user certificate from Vault")
+			}
+
+			userKey, err := utils.ParseECDSAPrivateKey([]byte(keyPEM))
+			if err != nil {
+				return nil, nil, nil, errors.Wrap(err, "failed to parse user key from Vault")
+			}
+
+			// Get the CA certificate
+			caSecretPath := fmt.Sprintf("secret/data/hlf-ca/%s/ca", params.MSPID)
+			caResp, err := vaultClient.Secrets.KvV2Read(ctx, caSecretPath, nil)
+			if err != nil {
+				return nil, nil, nil, errors.Wrap(err, "failed to read CA certificate from Vault")
+			}
+
+			var caCertPEM string
+			if caCertData, exists := caResp.Data.Data["tls.crt"]; exists && caCertData != nil {
+				if caCertStr, ok := caCertData.(string); ok {
+					caCertPEM = caCertStr
+				}
+			}
+
+			if caCertPEM == "" {
+				return nil, nil, nil, errors.New("CA certificate not found in Vault")
+			}
+
+			caCrt, err := utils.ParseX509Certificate([]byte(caCertPEM))
+			if err != nil {
+				return nil, nil, nil, errors.Wrap(err, "failed to parse CA certificate from Vault")
+			}
+
+			return userCrt, userKey, caCrt, nil
+		}
 	}
-	userKey, err := readKey(caClient)
+
+	// If we reach here, either the user doesn't exist or we couldn't retrieve the certificates
+	// We need to implement the enrollment logic using Vault PKI
+	return nil, nil, nil, fmt.Errorf("EnrollUser functionality not fully implemented for Vault yet")
+}
+
+func readKey(vaultClient *vault.Client, keyPath string) (*ecdsa.PrivateKey, error) {
+	// In this implementation, we read a private key from Vault
+	// This is a simplified implementation and would need to be adjusted for your specific Vault structure
+
+	// Extract the secret path and key from the provided path
+	// This assumes the path is in format 'secret/data/path/to/key'
+	ctx := context.Background()
+
+	// Read the secret from Vault
+	resp, err := vaultClient.Secrets.KvV2Read(ctx, keyPath, nil)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, errors.Wrapf(err, "failed to read key from vault path %s", keyPath)
 	}
-	return userCrt, userKey, rootCrt, nil
+
+	// Extract the private key from the secret data
+	// This assumes the key is stored in a field called 'key' or 'private_key'
+	var keyPEM string
+	if keyData, exists := resp.Data.Data["private_key"]; exists && keyData != nil {
+		if keyStr, ok := keyData.(string); ok {
+			keyPEM = keyStr
+		}
+	} else if keyData, exists := resp.Data.Data["key"]; exists && keyData != nil {
+		if keyStr, ok := keyData.(string); ok {
+			keyPEM = keyStr
+		}
+	} else {
+		return nil, errors.New("private key not found in vault response")
+	}
+
+	// Parse the PEM key
+	ecdsaKey, err := utils.ParseECDSAPrivateKey([]byte(keyPEM))
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to parse key from vault path %s", keyPath)
+	}
+
+	return ecdsaKey, nil
 }
 
 type GetUserRequest struct {
@@ -367,8 +401,181 @@ type GetUserRequest struct {
 	User         string
 }
 
-func GetClient(ca hlfv1alpha1.VaultSpecConf) (*vault.Client, error) {
-	// TODO: initialize hashicorp vault client with token
-	// return it
-	return nil, errors.New("not implemented")
+// Helper function to convert from the old FabricCAParams to VaultSpecConf
+func convertToVaultConfig(params FabricCAParams) *hlfv1alpha1.VaultSpecConf {
+	// This is a simplified conversion - you may need to add more fields
+	// depending on your specific requirements
+	return &hlfv1alpha1.VaultSpecConf{
+		URL:           params.URL,
+		TLSSkipVerify: true, // You might want to make this configurable
+		ServerCert:    params.TLSCert,
+		// Additional fields would need to be populated as needed
+	}
+}
+
+func GetClient(spec *hlfv1alpha1.VaultSpecConf, clientset *kubernetes.Clientset) (*vault.Client, error) {
+	// Configure Vault client
+	vaultConfig := vault.DefaultConfiguration()
+	vaultConfig.Address = spec.URL
+	var tlsConf vault.TLSConfiguration
+
+	// Configure TLS if client certificate is provided
+	if spec.ClientCert != "" && spec.ClientKeySecretRef != nil {
+		// Get the client key from the referenced secret
+		secretNamespace := spec.ClientKeySecretRef.Namespace
+		if secretNamespace == "" {
+			// Default to the same namespace if not specified
+			secretNamespace = "default"
+		}
+
+		secret, err := clientset.CoreV1().Secrets(secretNamespace).Get(
+			context.Background(),
+			spec.ClientKeySecretRef.Name,
+			v1.GetOptions{},
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get client key secret: %w", err)
+		}
+
+		// Extract client key from the secret
+		clientKey := secret.Data[spec.ClientKeySecretRef.Key]
+		if clientKey == nil {
+			return nil, fmt.Errorf("key %s not found in the secret", spec.ClientKeySecretRef.Key)
+		}
+
+		// Configure TLS with the cert and key files
+		tlsConf = vault.TLSConfiguration{
+			ServerName: spec.ServerName,
+			ClientCertificate: vault.ClientCertificateEntry{
+				FromBytes: []byte(spec.ClientCert),
+			},
+			ClientCertificateKey: vault.ClientCertificateKeyEntry{
+				FromBytes: clientKey,
+			},
+			InsecureSkipVerify: spec.TLSSkipVerify,
+		}
+		if spec.ServerName != "" {
+			tlsConf.ServerName = spec.ServerName
+		}
+		if spec.ServerCert != "" {
+			tlsConf.ServerCertificate = vault.ServerCertificateEntry{
+				FromBytes: []byte(spec.ServerCert),
+			}
+		}
+	} else if spec.TLSSkipVerify {
+		tlsConf = vault.TLSConfiguration{
+			InsecureSkipVerify: true,
+		}
+	} else if spec.CACert != "" {
+		tlsConf = vault.TLSConfiguration{
+			ServerCertificate: vault.ServerCertificateEntry{
+				FromBytes: []byte(spec.CACert),
+			},
+			InsecureSkipVerify: spec.TLSSkipVerify,
+		}
+	}
+
+	// Set timeout
+	if spec.Timeout != "" {
+		timeout, err := time.ParseDuration(spec.Timeout)
+		if err != nil {
+			return nil, fmt.Errorf("invalid timeout format: %w", err)
+		}
+		vaultConfig.RequestTimeout = timeout
+	}
+
+	// Set max retries
+	vaultConfig.RetryConfiguration.RetryMax = spec.MaxRetries
+	vaultClientOpts := []vault.ClientOption{
+		vault.WithAddress(vaultConfig.Address),
+		vault.WithHTTPClient(vaultConfig.HTTPClient),
+		vault.WithRetryConfiguration(vaultConfig.RetryConfiguration),
+		vault.WithRequestTimeout(vaultConfig.RequestTimeout),
+		vault.WithTLS(tlsConf),
+	}
+
+	// Create the Vault client
+	client, err := vault.New(
+		vaultClientOpts...,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Vault client: %w", err)
+	}
+
+	// Handle authentication methods
+	if spec.TokenSecretRef != nil && spec.TokenSecretRef.Name != "" {
+		// Get token from Kubernetes secret
+		secretNamespace := spec.TokenSecretRef.Namespace
+		if secretNamespace == "" {
+			secretNamespace = "default"
+		}
+
+		secret, err := clientset.CoreV1().Secrets(secretNamespace).Get(
+			context.Background(),
+			spec.TokenSecretRef.Name,
+			v1.GetOptions{},
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get token secret: %w", err)
+		}
+
+		tokenBytes := secret.Data[spec.TokenSecretRef.Key]
+		if tokenBytes == nil {
+			return nil, fmt.Errorf("key %s not found in token secret", spec.TokenSecretRef.Key)
+		}
+
+		client.SetToken(string(tokenBytes))
+	} else if spec.Role != "" && spec.SecretIdSecretRef != nil {
+		// // Get the secret ID from the referenced secret
+		// secretNamespace := spec.SecretIdSecretRef.Namespace
+		// if secretNamespace == "" {
+		// 	secretNamespace = "default"
+		// }
+
+		// secret, err := clientset.CoreV1().Secrets(secretNamespace).Get(
+		// 	context.Background(),
+		// 	spec.SecretIdSecretRef.Name,
+		// 	v1.GetOptions{},
+		// )
+		// if err != nil {
+		// 	return nil, fmt.Errorf("failed to get secret ID secret: %w", err)
+		// }
+
+		// secretIdBytes := secret.Data[spec.SecretIdSecretRef.Key]
+		// if secretIdBytes == nil {
+		// 	return nil, fmt.Errorf("key %s not found in secret ID secret", spec.SecretIdSecretRef.Key)
+		// }
+
+		// // // Set auth path
+		// // authPath := spec.AuthPath
+		// // if authPath == "" {
+		// // 	authPath = "kubernetes"
+		// // }
+
+		// // // Login with AppRole auth method
+		// // loginOptions := vault.WithAppRoleAuth(
+		// // 	spec.Role,
+		// // 	string(secretIdBytes),
+		// // )
+		// appRoleAuth, err := approle.NewApproleAuthMethod(
+		// 	spec.Role,
+		// 	string(secretIdBytes),
+		// )
+
+		// // Authenticate with Vault
+		// err = client.Auth.Met(context.Background(), loginOptions)
+		// if err != nil {
+		// 	return nil, fmt.Errorf("failed to login to Vault using AppRole auth: %w", err)
+		// }
+
+		// // Verify we have a valid token
+		// if client.Token() == "" {
+		// 	return nil, fmt.Errorf("no auth token returned from Vault")
+		// }
+		return nil, fmt.Errorf("role and secretId not implemented yet")
+	} else {
+		return nil, fmt.Errorf("no authentication method provided for Vault")
+	}
+
+	return client, nil
 }

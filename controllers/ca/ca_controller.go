@@ -15,13 +15,6 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/go-logr/logr"
-	"github.com/kfsoftware/hlf-operator/controllers/hlfmetrics"
-	"github.com/kfsoftware/hlf-operator/pkg/status"
-	"helm.sh/helm/v3/pkg/cli"
-	"helm.sh/helm/v3/pkg/release"
-	"sigs.k8s.io/controller-runtime/pkg/controller"
-
 	"math/big"
 	"net"
 	"os"
@@ -29,12 +22,19 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-logr/logr"
+	"github.com/hashicorp/vault-client-go/schema"
+	"github.com/kfsoftware/hlf-operator/controllers/certs_vault"
+	"github.com/kfsoftware/hlf-operator/controllers/hlfmetrics"
 	"github.com/kfsoftware/hlf-operator/controllers/utils"
 	hlfv1alpha1 "github.com/kfsoftware/hlf-operator/pkg/apis/hlf.kungfusoftware.es/v1alpha1"
+	"github.com/kfsoftware/hlf-operator/pkg/status"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/chart/loader"
+	"helm.sh/helm/v3/pkg/cli"
+	"helm.sh/helm/v3/pkg/release"
 	"helm.sh/helm/v3/pkg/storage/driver"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -44,8 +44,10 @@ import (
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
+
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
@@ -190,24 +192,100 @@ func getIPAddresses(spect hlfv1alpha1.FabricCASpec) []net.IP {
 	return ipAddresses
 }
 
-func createVaultClient(spec hlfv1alpha1.FabricCASpec) (*vault.Client, error) {
-	if spec.CredentialStore != hlfv1alpha1.CredentialStoreVault {
-		return nil, errors.New("Credential store is not 'vault'.")
+func CreateDefaultTLSWithVault(spec hlfv1alpha1.FabricCASpec, clientset *kubernetes.Clientset) (*x509.Certificate, *ecdsa.PrivateKey, error) {
+	// Get Vault client based on the CA spec
+	vaultClient, err := certs_vault.GetClient(spec.Vault, clientset)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get Vault client: %w", err)
 	}
-}
 
-func CreateDefaultTLSWithVault(spec hlfv1alpha1.FabricCASpec) (*x509.Certificate, *ecdsa.PrivateKey, error) {
-	// create TLS Cert self signed in Hashicorp Vault
+	// Generate a new ECDSA private key
+	caPrivKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to generate private key: %w", err)
+	}
 
-	// export TLS Cert and key from Hashicorp vault and return it
+	// Convert private key to PEM format
+	privKeyBytes, err := x509.MarshalPKCS8PrivateKey(caPrivKey)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to marshal private key: %w", err)
+	}
+	privKeyPEM := pem.EncodeToMemory(&pem.Block{
+		Type:  "PRIVATE KEY",
+		Bytes: privKeyBytes,
+	})
+
+	// Create certificate parameters
+	serialNumberLimit := new(big.Int).Lsh(big.NewInt(1), 128)
+	serialNumber, err := rand.Int(rand.Reader, serialNumberLimit)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to generate serial number: %w", err)
+	}
+
+	ips := getIPAddresses(spec)
+	dnsNames := getDNSNames(spec)
+
+	// Create certificate template
+	x509Cert := &x509.Certificate{
+		SerialNumber: serialNumber,
+		Subject: pkix.Name{
+			Organization:       []string{spec.TLS.Subject.O},
+			Country:            []string{spec.TLS.Subject.C},
+			Locality:           []string{spec.TLS.Subject.L},
+			OrganizationalUnit: []string{spec.TLS.Subject.OU},
+			StreetAddress:      []string{spec.TLS.Subject.ST},
+		},
+		NotBefore:             time.Now().AddDate(0, 0, -1),
+		NotAfter:              time.Now().AddDate(10, 0, 0),
+		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth},
+		BasicConstraintsValid: true,
+		IsCA:                  true,
+		IPAddresses:           ips,
+		DNSNames:              dnsNames,
+	}
+
+	// Create the certificate
+	certBytes, err := x509.CreateCertificate(rand.Reader, x509Cert, x509Cert, &caPrivKey.PublicKey, caPrivKey)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create certificate: %w", err)
+	}
+
+	// Convert certificate to PEM format
+	certPEM := pem.EncodeToMemory(&pem.Block{
+		Type:  "CERTIFICATE",
+		Bytes: certBytes,
+	})
+
+	// Store in Vault PKI mount
+	pkiPath := fmt.Sprintf("secret/data/hlf-ca/%s/tls", spec.TLS.Subject.O)
+	data := map[string]interface{}{
+		"certificate": string(certPEM),
+		"private_key": string(privKeyPEM),
+	}
+
+	// Write to Vault
+	_, err = vaultClient.Secrets.KvV2Write(context.Background(), pkiPath, schema.KvV2WriteRequest{
+		Data: data,
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to store CA in Vault: %w", err)
+	}
+
+	// Parse the certificate
+	crt, err := x509.ParseCertificate(certBytes)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to parse certificate: %w", err)
+	}
+
 	return crt, caPrivKey, nil
 }
 
-func CreateDefaultCACommon(spec hlfv1alpha1.FabricCASpec, conf hlfv1alpha1.FabricCAItemConf) (*x509.Certificate, *ecdsa.PrivateKey, error) {
+func CreateDefaultCACommon(spec hlfv1alpha1.FabricCASpec, conf hlfv1alpha1.FabricCAItemConf, clientset *kubernetes.Clientset) (*x509.Certificate, *ecdsa.PrivateKey, error) {
 	if spec.CredentialStore == hlfv1alpha1.CredentialStoreKubernetes {
 		return CreateDefaultCA(conf)
 	} else if spec.CredentialStore == hlfv1alpha1.CredentialStoreVault {
-		return CreateDefaultCAWithVault(conf)
+		return CreateDefaultCAWithVault(spec, conf, clientset)
 	} else {
 		return nil, nil, errors.New(
 			fmt.Sprintf("invalid credential store %s", spec.CredentialStore),
@@ -215,11 +293,11 @@ func CreateDefaultCACommon(spec hlfv1alpha1.FabricCASpec, conf hlfv1alpha1.Fabri
 	}
 }
 
-func CreateDefaultTLSCertCommon(spec hlfv1alpha1.FabricCASpec) (*x509.Certificate, *ecdsa.PrivateKey, error) {
+func CreateDefaultTLSCertCommon(spec hlfv1alpha1.FabricCASpec, clientset *kubernetes.Clientset) (*x509.Certificate, *ecdsa.PrivateKey, error) {
 	if spec.CredentialStore == hlfv1alpha1.CredentialStoreKubernetes {
 		return CreateDefaultTLSCert(spec)
 	} else if spec.CredentialStore == hlfv1alpha1.CredentialStoreVault {
-		return CreateDefaultTLSWithVault(spec)
+		return CreateDefaultTLSWithVault(spec, clientset)
 	} else {
 		return nil, nil, errors.New(
 			fmt.Sprintf("invalid credential store %s", spec.CredentialStore),
@@ -313,12 +391,93 @@ func CreateDefaultCA(conf hlfv1alpha1.FabricCAItemConf) (*x509.Certificate, *ecd
 	return crt, caPrivKey, nil
 }
 
-func CreateDefaultCAWithVault(spec hlfv1alpha1.FabricCASpec, conf hlfv1alpha1.FabricCAItemConf) (*x509.Certificate, *ecdsa.PrivateKey, error) {
-	// create CA in Hashicorp Vault
+func CreateDefaultCAWithVault(spec hlfv1alpha1.FabricCASpec, conf hlfv1alpha1.FabricCAItemConf, clientset *kubernetes.Clientset) (*x509.Certificate, *ecdsa.PrivateKey, error) {
+	// Get Vault client based on the CA spec
+	vaultClient, err := certs_vault.GetClient(spec.Vault, clientset)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get Vault client: %w", err)
+	}
 
-	// export CA from Hashicorp vault and return it
-	// return crt, caPrivKey, nil
-	return nil, nil, errors.New("not implemented yet")
+	// Generate a new ECDSA private key
+	caPrivKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to generate private key: %w", err)
+	}
+
+	// Convert private key to PEM format
+	privKeyBytes, err := x509.MarshalPKCS8PrivateKey(caPrivKey)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to marshal private key: %w", err)
+	}
+	privKeyPEM := pem.EncodeToMemory(&pem.Block{
+		Type:  "PRIVATE KEY",
+		Bytes: privKeyBytes,
+	})
+
+	// Generate parameters for the CA certificate
+	serialNumberLimit := new(big.Int).Lsh(big.NewInt(1), 128)
+	serialNumber, err := rand.Int(rand.Reader, serialNumberLimit)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to generate serial number: %w", err)
+	}
+
+	// Create the CA certificate
+	signCA := &x509.Certificate{
+		SerialNumber: serialNumber,
+		Subject: pkix.Name{
+			Organization:       []string{conf.Subject.O},
+			Country:            []string{conf.Subject.C},
+			Locality:           []string{conf.Subject.L},
+			OrganizationalUnit: []string{conf.Subject.OU},
+			StreetAddress:      []string{conf.Subject.ST},
+			CommonName:         conf.Subject.CN,
+		},
+		NotBefore:             time.Now().AddDate(0, 0, -1),
+		NotAfter:              time.Now().AddDate(10, 0, 0),
+		IsCA:                  true,
+		SubjectKeyId:          computeSKI(caPrivKey),
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth},
+		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign | x509.KeyUsageCRLSign | x509.KeyUsageKeyEncipherment,
+		BasicConstraintsValid: true,
+	}
+
+	// Create the certificate
+	caBytes, err := x509.CreateCertificate(rand.Reader, signCA, signCA, &caPrivKey.PublicKey, caPrivKey)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create certificate: %w", err)
+	}
+
+	// Parse the certificate
+	crt, err := x509.ParseCertificate(caBytes)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to parse certificate: %w", err)
+	}
+
+	// Store the certificate and private key in Vault
+	// This follows the same pattern as in the TLS CA implementation
+	certPEM := pem.EncodeToMemory(&pem.Block{
+		Type:  "CERTIFICATE",
+		Bytes: caBytes,
+	})
+
+	secretData := map[string]interface{}{
+		"tls.crt": string(certPEM),
+		"tls.key": string(privKeyPEM),
+	}
+	// Write the secret to Vault
+	pkiPath := fmt.Sprintf("secret/data/hlf-ca/%s/tls", conf.Subject.CN)
+	_, err = vaultClient.Secrets.KvV2Write(
+		context.Background(),
+		pkiPath,
+		schema.KvV2WriteRequest{
+			Data: secretData,
+		},
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to store CA certificate in Vault: %w", err)
+	}
+
+	return crt, caPrivKey, nil
 }
 
 func newActionCfg(log logr.Logger, clusterCfg *rest.Config, namespace string) (*action.Configuration, error) {
@@ -521,7 +680,7 @@ func GetConfig(conf *hlfv1alpha1.FabricCA, client *kubernetes.Clientset, chartNa
 	spec := conf.Spec
 	tlsCert, tlsKey, err := getExistingTLSCrypto(client, chartName, namespace)
 	if err != nil {
-		tlsCert, tlsKey, err = CreateDefaultTLSCertCommon(spec)
+		tlsCert, tlsKey, err = CreateDefaultTLSCertCommon(spec, client)
 		if err != nil {
 			return nil, err
 		}
@@ -529,7 +688,7 @@ func GetConfig(conf *hlfv1alpha1.FabricCA, client *kubernetes.Clientset, chartNa
 		certNeedsToBeRenewed := doesCertNeedsToBeRenewed(tlsCert, conf)
 		log.Infof("FabricCA, name=%s namespace=%s TLS certs needs to be renewed: %v", conf.Name, conf.Namespace, certNeedsToBeRenewed)
 		if certNeedsToBeRenewed {
-			tlsCert, tlsKey, err = CreateDefaultTLSCertCommon(spec)
+			tlsCert, tlsKey, err = CreateDefaultTLSCertCommon(spec, client)
 			if err != nil {
 				return nil, err
 			}
@@ -546,7 +705,7 @@ func GetConfig(conf *hlfv1alpha1.FabricCA, client *kubernetes.Clientset, chartNa
 		} else if conf.Spec.CA.CA != nil && conf.Spec.CA.CA.Key != "" && conf.Spec.CA.CA.Cert != "" {
 			signCert, signKey, err = parseCrypto(conf.Spec.CA.CA.Key, conf.Spec.CA.CA.Cert)
 		} else {
-			signCert, signKey, err = CreateDefaultCACommon(spec, spec.CA)
+			signCert, signKey, err = CreateDefaultCACommon(spec, spec.CA, client)
 		}
 		if err != nil {
 			return nil, err
@@ -563,7 +722,7 @@ func GetConfig(conf *hlfv1alpha1.FabricCA, client *kubernetes.Clientset, chartNa
 		} else if conf.Spec.TLSCA.CA != nil && conf.Spec.TLSCA.CA.Key != "" && conf.Spec.TLSCA.CA.Cert != "" {
 			caTLSSignCert, caTLSSignKey, err = parseCrypto(conf.Spec.TLSCA.CA.Key, conf.Spec.TLSCA.CA.Cert)
 		} else {
-			caTLSSignCert, caTLSSignKey, err = CreateDefaultCACommon(spec, spec.TLSCA)
+			caTLSSignCert, caTLSSignKey, err = CreateDefaultCACommon(spec, spec.TLSCA, client)
 		}
 		if err != nil {
 			return nil, err

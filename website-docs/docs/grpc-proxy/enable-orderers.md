@@ -1,4 +1,4 @@
-
+# Enable GRPC proxy on the orderers
 ## Enable GRPC proxy for Fabric Operations Console
 
 In order to enable the GRPC Web, needed to connect the peer to the Fabric Operations console, we need to add the `grpcProxy` property with the following attributes:

@@ -35,6 +35,13 @@ spec:
     - Org2MSP
   # output secret name for the network config
   secretName: network-config
+
+  # what peers to include in the network config for each organization
+  organizationConfig:
+    Org1MSP:
+      peers: 
+        - name: peer0
+          namespace: default
 ```
 
 The network config controller will be watching for changes in the network config CRD and will generate a network config secret with the name specified in the `secretName` field. The secret will contain a `config.yaml` file with the network config. If the identities are renewed, the network config will be updated automatically.

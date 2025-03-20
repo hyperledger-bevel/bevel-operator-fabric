@@ -26,3 +26,11 @@ So, to handle this, support for other proxies must be added. Gateway API address
 In other words, now the hlf-network can be set up by various other proxies other than Istio.
 
 More about the supported implementations of Gateway API: [Gateway API Implementations](https://gateway-api.sigs.k8s.io/implementations/)
+
+## How to use the Gateway API?
+
+Refer to the [Getting Started](./getting-started.md) guide to learn how to use the Gateway API with the hlf-operator.
+
+## How to use the Gateway API with the hlf-operator?
+
+Refer to the [Implementation](./implementation.md) guide to learn how to use the Gateway API with the hlf-operator.

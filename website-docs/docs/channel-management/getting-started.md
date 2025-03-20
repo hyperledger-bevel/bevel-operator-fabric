@@ -16,14 +16,23 @@ This resource creates and manages the channel configuration, including:
 - Peer organizations
 - Orderer organizations
 
+The role of the FabricMainChannel is to manage the channel configuration, you can think of it as the "founder" of the channel.
+
 ### FabricFollowerChannel
 
 This resource joins the channel and manages the channel configuration, including:
 
 - Anchor peers
 - Peers to join
+- Revocation list
+
+The role of the FabricFollowerChannel is to join the channel and manage the channel configuration, you can think of it as organizations that will be joining the channel.
+
 
 ### Wallet
+
+> **Note:** The recommended way to manage identities is to use the FabricIdentity resource. For more information about identity management, see the [Identity Management](../security/revoke-identities.md) section.
+
 
 For every resource we need a wallet to interact with the network.
 

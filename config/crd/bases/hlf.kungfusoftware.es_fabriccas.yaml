@@ -826,6 +826,9 @@ spec:
                 - enabled
                 - origins
                 type: object
+              credentialStore:
+                default: kubernetes
+                type: string
               db:
                 properties:
                   datasource:
@@ -1543,6 +1546,95 @@ spec:
                 required:
                 - entryPoints
                 type: object
+              vault:
+                nullable: true
+                properties:
+                  authPath:
+                    default: kubernetes
+                    nullable: true
+                    type: string
+                  backend:
+                    default: kv
+                    type: string
+                  caCert:
+                    type: string
+                  clientCert:
+                    type: string
+                  clientKey:
+                    properties:
+                      key:
+                        type: string
+                      name:
+                        type: string
+                      namespace:
+                        type: string
+                    required:
+                    - key
+                    - name
+                    - namespace
+                    type: object
+                  kvVersion:
+                    default: 2
+                    type: integer
+                  maxRetries:
+                    default: 2
+                    type: integer
+                  path:
+                    nullable: true
+                    type: string
+                  role:
+                    nullable: true
+                    type: string
+                  secretIdSecretRef:
+                    nullable: true
+                    properties:
+                      key:
+                        type: string
+                      name:
+                        type: string
+                      namespace:
+                        type: string
+                    required:
+                    - key
+                    - name
+                    - namespace
+                    type: object
+                  serverCert:
+                    nullable: true
+                    type: string
+                  serverName:
+                    type: string
+                  serviceAccountTokenPath:
+                    nullable: true
+                    type: string
+                  timeout:
+                    default: 30s
+                    type: string
+                  tlsSkipVerify:
+                    default: false
+                    type: boolean
+                  tokenSecretRef:
+                    nullable: true
+                    properties:
+                      key:
+                        type: string
+                      name:
+                        type: string
+                      namespace:
+                        type: string
+                    required:
+                    - key
+                    - name
+                    - namespace
+                    type: object
+                  url:
+                    type: string
+                required:
+                - maxRetries
+                - timeout
+                - tlsSkipVerify
+                - url
+                type: object
               version:
                 minLength: 1
                 type: string
@@ -1550,6 +1642,7 @@ spec:
             - ca
             - clrSizeLimit
             - cors
+            - credentialStore
             - db
             - debug
             - hosts

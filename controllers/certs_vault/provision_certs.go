@@ -3,11 +3,17 @@ package certs_vault
 import (
 	"context"
 	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
 	"fmt"
+	"math/big"
 	"time"
 
 	"github.com/hashicorp/vault-client-go"
+	"github.com/hashicorp/vault-client-go/schema"
 	"github.com/kfsoftware/hlf-operator/controllers/utils"
 	"github.com/kfsoftware/hlf-operator/internal/github.com/hyperledger/fabric-ca/api"
 	"github.com/kfsoftware/hlf-operator/internal/github.com/hyperledger/fabric-ca/lib"
@@ -201,6 +207,147 @@ func RegisterUser(params RegisterUserRequest) (string, error) {
 	// This function expected to use a Fabric CA client, not a Vault client
 	// We need to implement the equivalent functionality using Vault
 	return "", fmt.Errorf("RegisterUser functionality not implemented for Vault yet")
+}
+
+type CreateCARequest struct {
+	Name         string
+	Subject      hlfv1alpha1.FabricCASubject
+	SerialNumber *big.Int
+}
+
+// CreateCA creates a CA certificate in Vault's PKI backend
+func CreateCA(ctx context.Context, req CreateCARequest, clientset *kubernetes.Clientset, vaultClient *vault.Client) (*x509.Certificate, *ecdsa.PrivateKey, error) {
+	logrus.Infof("Creating CA in Vault for %s", req.Name)
+
+	// Check if CA certificate already exists in Vault
+	secretPath := fmt.Sprintf("secret/data/hlf-ca/%s", req.Name)
+	secret, err := vaultClient.Secrets.KvV2Read(ctx, secretPath)
+	if err == nil && secret.Data.Data != nil {
+		// CA exists, retrieve it
+		logrus.Infof("CA certificate already exists for %s, retrieving it", req.Name)
+
+		certPEM, ok := secret.Data.Data["certificate"].(string)
+		if !ok {
+			return nil, nil, errors.New("failed to retrieve certificate from Vault")
+		}
+
+		keyPEM, ok := secret.Data.Data["private_key"].(string)
+		if !ok {
+			return nil, nil, errors.New("failed to retrieve private key from Vault")
+		}
+
+		// Parse the certificate
+		block, _ := pem.Decode([]byte(certPEM))
+		if block == nil {
+			return nil, nil, errors.New("failed to parse certificate PEM")
+		}
+		cert, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			return nil, nil, errors.Wrap(err, "failed to parse certificate")
+		}
+
+		// Parse the private key
+		block, _ = pem.Decode([]byte(keyPEM))
+		if block == nil {
+			return nil, nil, errors.New("failed to parse private key PEM")
+		}
+		key, err := x509.ParseECPrivateKey(block.Bytes)
+		if err != nil {
+			return nil, nil, errors.Wrap(err, "failed to parse private key")
+		}
+
+		logrus.Infof("Successfully retrieved existing CA certificate for %s from Vault", req.Name)
+		return cert, key, nil
+	}
+
+	// Generate a new CA certificate
+	logrus.Infof("Generating new root certificate for %s", req.Name)
+	serialNumber := req.SerialNumber
+	if serialNumber == nil {
+		// Generate a random serial number if not provided
+		serialNumberLimit := new(big.Int).Lsh(big.NewInt(1), 128)
+		var genErr error
+		serialNumber, genErr = rand.Int(rand.Reader, serialNumberLimit)
+		if genErr != nil {
+			return nil, nil, errors.Wrap(genErr, "failed to generate serial number")
+		}
+	}
+
+	// Generate private key
+	caPrivKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return nil, nil, errors.Wrap(err, "failed to generate private key")
+	}
+
+	// Create certificate template
+	x509Cert := &x509.Certificate{
+		SerialNumber: serialNumber,
+		Subject: pkix.Name{
+			CommonName:         req.Subject.CN,
+			Organization:       []string{req.Subject.O},
+			Country:            []string{req.Subject.C},
+			Locality:           []string{req.Subject.L},
+			OrganizationalUnit: []string{req.Subject.OU},
+			StreetAddress:      []string{req.Subject.ST},
+		},
+		NotBefore:             time.Now().AddDate(0, 0, -1),
+		NotAfter:              time.Now().AddDate(10, 0, 0),
+		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth},
+		BasicConstraintsValid: true,
+		IsCA:                  true,
+	}
+
+	// Create the certificate
+	certBytes, err := x509.CreateCertificate(rand.Reader, x509Cert, x509Cert, &caPrivKey.PublicKey, caPrivKey)
+	if err != nil {
+		return nil, nil, errors.Wrap(err, "failed to create certificate")
+	}
+
+	// Convert certificate to PEM format
+	certPEM := pem.EncodeToMemory(&pem.Block{
+		Type:  "CERTIFICATE",
+		Bytes: certBytes,
+	})
+
+	// Convert private key to PEM format
+	privKeyBytes, err := x509.MarshalECPrivateKey(caPrivKey)
+	if err != nil {
+		return nil, nil, errors.Wrap(err, "failed to marshal private key")
+	}
+	privKeyPEM := pem.EncodeToMemory(&pem.Block{
+		Type:  "EC PRIVATE KEY",
+		Bytes: privKeyBytes,
+	})
+
+	// Store in Vault
+	data := map[string]interface{}{
+		"certificate": string(certPEM),
+		"private_key": string(privKeyPEM),
+	}
+
+	// Write to Vault
+	_, err = vaultClient.Secrets.KvV2Write(ctx, secretPath, schema.KvV2WriteRequest{
+		Data: data,
+	})
+	if err != nil {
+		return nil, nil, errors.Wrap(err, "failed to store CA in Vault")
+	}
+
+	// Parse the certificate
+	crt, err := x509.ParseCertificate(certBytes)
+	if err != nil {
+		return nil, nil, errors.Wrap(err, "failed to parse certificate")
+	}
+
+	logrus.Infof("Successfully created CA certificate for %s in Vault", req.Name)
+	return crt, caPrivKey, nil
+}
+
+// CreateDefaultCAWithVault creates a default CA certificate in Vault
+func CreateDefaultCAWithVault(ctx context.Context, fabricCA *hlfv1alpha1.FabricCA, conf hlfv1alpha1.FabricCAItemConf, clientset *kubernetes.Clientset, vaultClient *vault.Client, caReq CreateCARequest) (*x509.Certificate, *ecdsa.PrivateKey, error) {
+	// Create the CA request
+	return CreateCA(ctx, caReq, clientset, vaultClient)
 }
 
 func GetCAInfo(params GetCAInfoRequest) (*lib.GetCAInfoResponse, error) {

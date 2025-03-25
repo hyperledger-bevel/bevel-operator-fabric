@@ -114,6 +114,10 @@ const config: Config = {
   },
   plugins: ["@orama/plugin-docusaurus-v3"],
 
+	markdown: {
+		mermaid: true,
+	},
+	themes: ['@docusaurus/theme-mermaid'],
   presets: [
     [
       "@docusaurus/preset-classic",

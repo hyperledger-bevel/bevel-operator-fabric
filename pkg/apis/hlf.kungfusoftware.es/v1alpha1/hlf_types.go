@@ -272,8 +272,13 @@ type FabricPeerSpec struct {
 	// +optional
 	// +kubebuilder:validation:Optional
 	// +nullable
-	Vault *VaultSpecConf `json:"vault"`
+	Vault *FabricPeerVaultSpec `json:"vault"`
 }
+type FabricPeerVaultSpec struct {
+	Request VaultPKICertificateRequest `json:"request"`
+	Vault   VaultSpecConf              `json:"vault"`
+}
+
 type FabricPeerResources struct {
 	Peer      *corev1.ResourceRequirements `json:"peer"`
 	CouchDB   *corev1.ResourceRequirements `json:"couchdb"`
@@ -657,6 +662,15 @@ type FabricOrdererNodeSpec struct {
 	// +optional
 	// +kubebuilder:validation:Default={}
 	Env []corev1.EnvVar `json:"env"`
+
+	// +optional
+	// +nullable
+	Vault *FabricOrdererVaultSpec `json:"vault"`
+}
+
+type FabricOrdererVaultSpec struct {
+	Request VaultPKICertificateRequest `json:"request"`
+	Vault   VaultSpecConf              `json:"vault"`
 }
 
 type OrdererSystemChannel struct {
@@ -817,7 +831,7 @@ type FabricCASpec struct {
 	// +optional
 	// +kubebuilder:validation:Optional
 	// +nullable
-	Vault *VaultSpecConf `json:"vault"`
+	Vault *FabricCAVaultSpec `json:"vault"`
 
 	// +nullable
 	// +kubebuilder:validation:Optional
@@ -826,12 +840,35 @@ type FabricCASpec struct {
 	Env []corev1.EnvVar `json:"env"`
 }
 
+type FabricCAVaultSpec struct {
+	Request VaultPKICertificateRequest `json:"request"`
+	Vault   VaultSpecConf              `json:"vault"`
+}
+
 type VaultBackend string
 
 const (
 	VaultBackendKV  VaultBackend = "kv"
 	VaultBackendPKI VaultBackend = "pki"
 )
+
+// VaultPKICertificateRequest defines the configuration for requesting certificates from Vault's PKI backend
+type VaultPKICertificateRequest struct {
+	// Role is the PKI role to use for certificate generation
+	// +kubebuilder:validation:Required
+	Role string `json:"role"`
+
+	// TTL is the requested time-to-live of the certificate
+	// +optional
+	// +kubebuilder:default:="8760h"
+	TTL string `json:"ttl,omitempty"`
+
+	// UserIDs are optional user identifiers that can be included in the certificate
+	// +optional
+	// +nullable
+	// +kubebuilder:default:={}
+	UserIDs []string `json:"userIDs,omitempty"`
+}
 
 type VaultSpecConf struct {
 	// URL of the Vault server

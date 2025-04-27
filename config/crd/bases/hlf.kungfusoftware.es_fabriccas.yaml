@@ -1549,91 +1549,116 @@ spec:
               vault:
                 nullable: true
                 properties:
-                  authPath:
-                    default: kubernetes
-                    nullable: true
-                    type: string
-                  backend:
-                    default: kv
-                    type: string
-                  caCert:
-                    type: string
-                  clientCert:
-                    type: string
-                  clientKey:
+                  request:
                     properties:
-                      key:
+                      pki:
                         type: string
-                      name:
+                      role:
                         type: string
-                      namespace:
+                      ttl:
+                        default: 8760h
+                        type: string
+                      userIDs:
+                        default: []
+                        items:
+                          type: string
+                        nullable: true
+                        type: array
+                    required:
+                    - pki
+                    - role
+                    type: object
+                  vault:
+                    properties:
+                      authPath:
+                        default: kubernetes
+                        nullable: true
+                        type: string
+                      backend:
+                        default: kv
+                        type: string
+                      caCert:
+                        type: string
+                      clientCert:
+                        type: string
+                      clientKey:
+                        properties:
+                          key:
+                            type: string
+                          name:
+                            type: string
+                          namespace:
+                            type: string
+                        required:
+                        - key
+                        - name
+                        - namespace
+                        type: object
+                      kvVersion:
+                        default: 2
+                        type: integer
+                      maxRetries:
+                        default: 2
+                        type: integer
+                      path:
+                        nullable: true
+                        type: string
+                      role:
+                        nullable: true
+                        type: string
+                      secretIdSecretRef:
+                        nullable: true
+                        properties:
+                          key:
+                            type: string
+                          name:
+                            type: string
+                          namespace:
+                            type: string
+                        required:
+                        - key
+                        - name
+                        - namespace
+                        type: object
+                      serverCert:
+                        nullable: true
+                        type: string
+                      serverName:
+                        type: string
+                      serviceAccountTokenPath:
+                        nullable: true
+                        type: string
+                      timeout:
+                        default: 30s
+                        type: string
+                      tlsSkipVerify:
+                        default: false
+                        type: boolean
+                      tokenSecretRef:
+                        nullable: true
+                        properties:
+                          key:
+                            type: string
+                          name:
+                            type: string
+                          namespace:
+                            type: string
+                        required:
+                        - key
+                        - name
+                        - namespace
+                        type: object
+                      url:
                         type: string
                     required:
-                    - key
-                    - name
-                    - namespace
+                    - maxRetries
+                    - timeout
+                    - tlsSkipVerify
+                    - url
                     type: object
-                  kvVersion:
-                    default: 2
-                    type: integer
-                  maxRetries:
-                    default: 2
-                    type: integer
-                  path:
-                    nullable: true
-                    type: string
-                  role:
-                    nullable: true
-                    type: string
-                  secretIdSecretRef:
-                    nullable: true
-                    properties:
-                      key:
-                        type: string
-                      name:
-                        type: string
-                      namespace:
-                        type: string
-                    required:
-                    - key
-                    - name
-                    - namespace
-                    type: object
-                  serverCert:
-                    nullable: true
-                    type: string
-                  serverName:
-                    type: string
-                  serviceAccountTokenPath:
-                    nullable: true
-                    type: string
-                  timeout:
-                    default: 30s
-                    type: string
-                  tlsSkipVerify:
-                    default: false
-                    type: boolean
-                  tokenSecretRef:
-                    nullable: true
-                    properties:
-                      key:
-                        type: string
-                      name:
-                        type: string
-                      namespace:
-                        type: string
-                    required:
-                    - key
-                    - name
-                    - namespace
-                    type: object
-                  url:
-                    type: string
                 required:
-                - maxRetries
-                - timeout
-                - tlsSkipVerify
-                - url
+                - request
+                - vault
                 type: object
               version:
                 minLength: 1

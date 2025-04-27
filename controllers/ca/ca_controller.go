@@ -194,7 +194,7 @@ func getIPAddresses(spect hlfv1alpha1.FabricCASpec) []net.IP {
 
 func CreateDefaultTLSWithVault(spec hlfv1alpha1.FabricCASpec, clientset *kubernetes.Clientset) (*x509.Certificate, *ecdsa.PrivateKey, error) {
 	// Get Vault client based on the CA spec
-	vaultClient, err := certs_vault.GetClient(spec.Vault, clientset)
+	vaultClient, err := certs_vault.GetClient(&spec.Vault.Vault, clientset)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get Vault client: %w", err)
 	}
@@ -394,7 +394,7 @@ func CreateDefaultCA(conf hlfv1alpha1.FabricCAItemConf) (*x509.Certificate, *ecd
 }
 
 func CreateDefaultCAWithVault(fabricCA *hlfv1alpha1.FabricCA, conf hlfv1alpha1.FabricCAItemConf, clientset *kubernetes.Clientset, caType string) (*x509.Certificate, *ecdsa.PrivateKey, error) {
-	vaultClient, err := certs_vault.GetClient(fabricCA.Spec.Vault, clientset)
+	vaultClient, err := certs_vault.GetClient(&fabricCA.Spec.Vault.Vault, clientset)
 	if err != nil {
 		return nil, nil, err
 	}

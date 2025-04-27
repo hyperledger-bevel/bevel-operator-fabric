@@ -126,7 +126,7 @@ func createPeer(releaseName string, namespace string, params createPeerParams, c
 						Enrollid:     peerEnrollID,
 						Enrollsecret: peerEnrollSecret,
 					},
-					TLS: hlfv1alpha1.TLS{
+					TLS: hlfv1alpha1.TLSComponent{
 						Cahost: caHost,
 						Caname: caName,
 						Caport: caPort,

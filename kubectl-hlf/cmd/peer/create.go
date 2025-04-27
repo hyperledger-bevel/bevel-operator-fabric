@@ -255,7 +255,7 @@ func (c *createCmd) run() error {
 		Enrollid:     c.peerOpts.EnrollID,
 		Enrollsecret: c.peerOpts.EnrollPW,
 	}
-	tls := v1alpha1.TLS{
+	tls := v1alpha1.TLSComponent{
 		Cahost: caHost,
 		Caport: caPort,
 		Caname: certAuth.Spec.TLSCA.Name,

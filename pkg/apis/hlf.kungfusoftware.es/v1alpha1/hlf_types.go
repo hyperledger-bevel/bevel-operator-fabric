@@ -268,13 +268,9 @@ type FabricPeerSpec struct {
 
 	// +kubebuilder:default:="kubernetes"
 	CredentialStore CredentialStore `json:"credentialStore"`
-
-	// +optional
-	// +kubebuilder:validation:Optional
-	// +nullable
-	Vault *FabricPeerVaultSpec `json:"vault"`
 }
-type FabricPeerVaultSpec struct {
+
+type VaultComponent struct {
 	Request VaultPKICertificateRequest `json:"request"`
 	Vault   VaultSpecConf              `json:"vault"`
 }
@@ -412,20 +408,20 @@ type Catls struct {
 	SecretRef *SecretRefNSKey `json:"secretRef"`
 }
 type Component struct {
-	// +kubebuilder:validation:MinLength=1
-	Cahost string `json:"cahost"`
-	// +kubebuilder:validation:MinLength=1
-	Caname string `json:"caname"`
-	Caport int    `json:"caport"`
-	Catls  Catls  `json:"catls"`
-	// +kubebuilder:validation:MinLength=1
-	Enrollid string `json:"enrollid"`
-	// +kubebuilder:validation:MinLength=1
+	Cahost       string `json:"cahost"`
+	Caname       string `json:"caname"`
+	Caport       int    `json:"caport"`
+	Catls        Catls  `json:"catls"`
+	Enrollid     string `json:"enrollid"`
 	Enrollsecret string `json:"enrollsecret"`
 
 	// +optional
 	// +nullable
 	External *ExternalCertificate `json:"external"`
+
+	// +optional
+	// +nullable
+	Vault *VaultComponent `json:"vault"`
 }
 type ExternalCertificate struct {
 	SecretName         string `json:"secretName"`
@@ -445,7 +441,7 @@ type Csr struct {
 	// +optional
 	CN string `json:"cn"`
 }
-type TLS struct {
+type TLSComponent struct {
 	Cahost string `json:"cahost"`
 	Caname string `json:"caname"`
 	Caport int    `json:"caport"`
@@ -457,15 +453,24 @@ type TLS struct {
 
 	// +optional
 	// +nullable
+	Vault *VaultComponent `json:"vault"`
+
+	// +optional
+	// +nullable
 	External *ExternalCertificate `json:"external"`
 }
+
 type Enrollment struct {
-	Component Component `json:"component"`
-	TLS       TLS       `json:"tls"`
+	Component Component    `json:"component"`
+	TLS       TLSComponent `json:"tls"`
 }
+
 type OrdererEnrollment struct {
-	Component Component `json:"component"`
-	TLS       TLS       `json:"tls"`
+	// +optional
+	// +nullable
+	Component *Component `json:"component"`
+
+	TLS TLSComponent `json:"tls"`
 }
 type Secret struct {
 	Enrollment Enrollment `json:"enrollment"`
@@ -666,6 +671,9 @@ type FabricOrdererNodeSpec struct {
 	// +optional
 	// +nullable
 	Vault *FabricOrdererVaultSpec `json:"vault"`
+
+	// +kubebuilder:default:="kubernetes"
+	CredentialStore CredentialStore `json:"credentialStore"`
 }
 
 type FabricOrdererVaultSpec struct {
@@ -854,6 +862,11 @@ const (
 
 // VaultPKICertificateRequest defines the configuration for requesting certificates from Vault's PKI backend
 type VaultPKICertificateRequest struct {
+
+	// PKI is the PKI backend to use for certificate generation
+	// +kubebuilder:validation:Required
+	PKI string `json:"pki"`
+
 	// Role is the PKI role to use for certificate generation
 	// +kubebuilder:validation:Required
 	Role string `json:"role"`
@@ -1938,7 +1951,7 @@ type FabricChaincodeSpec struct {
 	// +nullable
 	// +kubebuilder:validation:Optional
 	// +optional
-	Credentials *TLS `json:"credentials"`
+	Credentials *TLSComponent `json:"credentials"`
 
 	// +kubebuilder:validation:Default=1
 	Replicas int `json:"replicas"`

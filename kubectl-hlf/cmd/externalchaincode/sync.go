@@ -4,12 +4,13 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"strings"
+
 	"github.com/kfsoftware/hlf-operator/kubectl-hlf/cmd/helpers"
 	"github.com/kfsoftware/hlf-operator/pkg/apis/hlf.kungfusoftware.es/v1alpha1"
 	"github.com/spf13/cobra"
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"strings"
 )
 
 type syncExternalChaincodeCmd struct {
@@ -104,7 +105,7 @@ func (c syncExternalChaincodeCmd) getFabricChaincodeSpec(ctx context.Context) (v
 		if err != nil {
 			return fabricChaincodeSpec, err
 		}
-		fabricChaincodeSpec.Credentials = &v1alpha1.TLS{
+		fabricChaincodeSpec.Credentials = &v1alpha1.TLSComponent{
 			Cahost: fmt.Sprintf("%s.%s", fabricCA.Name, fabricCA.Namespace),
 			Caname: "tlsca",
 			Caport: 7054,
@@ -188,7 +189,7 @@ func (c *syncExternalChaincodeCmd) updateChaincode(ctx context.Context, fabricCh
 		if err != nil {
 			return err
 		}
-		fabricChaincode.Spec.Credentials = &v1alpha1.TLS{
+		fabricChaincode.Spec.Credentials = &v1alpha1.TLSComponent{
 			Cahost: fmt.Sprintf("%s.%s", fabricCA.Name, fabricCA.Namespace),
 			Caname: "tlsca",
 			Caport: 7054,

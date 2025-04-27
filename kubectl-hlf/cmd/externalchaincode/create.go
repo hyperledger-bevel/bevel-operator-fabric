@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+
 	"github.com/kfsoftware/hlf-operator/kubectl-hlf/cmd/helpers"
 	"github.com/kfsoftware/hlf-operator/pkg/apis/hlf.kungfusoftware.es/v1alpha1"
 	"github.com/spf13/cobra"
@@ -87,7 +88,7 @@ func (c *createExternalChaincodeCmd) run() error {
 		if err != nil {
 			return err
 		}
-		fabricChaincodeSpec.Credentials = &v1alpha1.TLS{
+		fabricChaincodeSpec.Credentials = &v1alpha1.TLSComponent{
 			Cahost: fmt.Sprintf("%s.%s", fabricCA.Name, fabricCA.Namespace),
 			Caname: "tlsca",
 			Caport: 7054,

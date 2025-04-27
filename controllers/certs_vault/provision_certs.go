@@ -10,11 +10,11 @@ import (
 	"encoding/pem"
 	"fmt"
 	"math/big"
+	"strings"
 	"time"
 
 	"github.com/hashicorp/vault-client-go"
 	"github.com/hashicorp/vault-client-go/schema"
-	"github.com/kfsoftware/hlf-operator/controllers/utils"
 	"github.com/kfsoftware/hlf-operator/internal/github.com/hyperledger/fabric-ca/api"
 	"github.com/kfsoftware/hlf-operator/internal/github.com/hyperledger/fabric-ca/lib"
 	hlfv1alpha1 "github.com/kfsoftware/hlf-operator/pkg/apis/hlf.kungfusoftware.es/v1alpha1"
@@ -95,12 +95,8 @@ type FabricCAParams struct {
 }
 
 type EnrollUserRequest struct {
-	TLSCert    string
-	URL        string
-	Name       string
 	MSPID      string
 	User       string
-	Secret     string
 	Hosts      []string
 	CN         string
 	Profile    string
@@ -108,9 +104,6 @@ type EnrollUserRequest struct {
 }
 type ReenrollUserRequest struct {
 	EnrollID   string
-	TLSCert    string
-	URL        string
-	Name       string
 	MSPID      string
 	Hosts      []string
 	CN         string
@@ -379,163 +372,117 @@ func GetCAInfo(params GetCAInfoRequest) (*lib.GetCAInfoResponse, error) {
 	return nil, fmt.Errorf("GetCAInfo functionality not implemented for Vault yet")
 }
 
-func ReenrollUser(params ReenrollUserRequest, certPem string, ecdsaKey *ecdsa.PrivateKey) (*x509.Certificate, *x509.Certificate, error) {
-	// Get a Kubernetes clientset
-	config, err := rest.InClusterConfig()
-	if err != nil {
-		return nil, nil, errors.Wrap(err, "failed to get in-cluster config")
-	}
-	clientset, err := kubernetes.NewForConfig(config)
-	if err != nil {
-		return nil, nil, errors.Wrap(err, "failed to create Kubernetes client")
-	}
-
-	// Convert params using the helper function and get the client
-	vaultConf := convertToVaultConfig(FabricCAParams{
-		TLSCert: params.TLSCert,
-		URL:     params.URL,
-		Name:    params.Name,
-		MSPID:   params.MSPID,
-	})
-
-	vaultClient, err := GetClient(vaultConf, clientset)
+func ReenrollUser(clientSet *kubernetes.Clientset, spec *hlfv1alpha1.VaultSpecConf, request *hlfv1alpha1.VaultPKICertificateRequest, params ReenrollUserRequest, certPem string, ecdsaKey *ecdsa.PrivateKey) (*x509.Certificate, *x509.Certificate, error) {
+	vaultClient, err := GetClient(spec, clientSet)
 	if err != nil {
 		return nil, nil, err
 	}
-	_ = vaultClient
-	// This function expected to use a Fabric CA client, not a Vault client
-	// We need to implement the equivalent functionality using Vault
-	return nil, nil, fmt.Errorf("ReenrollUser functionality not implemented for Vault yet")
+
+	// Create CSR data
+	csrData := map[string]interface{}{
+		"common_name": params.EnrollID,
+		"key_type":    "ec",
+	}
+	if len(params.Hosts) > 0 {
+		csrData["alt_names"] = strings.Join(params.Hosts, ",")
+	}
+	if params.CN != "" {
+		csrData["common_name"] = params.CN
+	}
+
+	// Request certificate from Vault PKI using existing key
+	secret, err := vaultClient.Write(
+		context.Background(),
+		fmt.Sprintf("%s/issue/%s", "pki", "fabric"), // TODO: Make these configurable
+		csrData,
+	)
+	if err != nil {
+		return nil, nil, errors.Wrap(err, "failed to issue certificate from Vault PKI")
+	}
+
+	// Parse the signed certificate
+	certPEM := secret.Data["certificate"].(string)
+	block, _ := pem.Decode([]byte(certPEM))
+	if block == nil {
+		return nil, nil, errors.New("failed to decode certificate PEM")
+	}
+
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return nil, nil, errors.Wrap(err, "failed to parse certificate")
+	}
+
+	// Parse the CA certificate
+	caCertPEM := secret.Data["issuing_ca"].(string)
+	caBlock, _ := pem.Decode([]byte(caCertPEM))
+	if caBlock == nil {
+		return nil, nil, errors.New("failed to decode CA certificate PEM")
+	}
+
+	caCert, err := x509.ParseCertificate(caBlock.Bytes)
+	if err != nil {
+		return nil, nil, errors.Wrap(err, "failed to parse CA certificate")
+	}
+
+	return cert, caCert, nil
 }
 
-func EnrollUser(vaultConf *hlfv1alpha1.VaultSpecConf, params EnrollUserRequest) (*x509.Certificate, *ecdsa.PrivateKey, *x509.Certificate, error) {
-	// Get a Kubernetes clientset
-	config, err := rest.InClusterConfig()
-	if err != nil {
-		return nil, nil, nil, errors.Wrap(err, "failed to get in-cluster config")
-	}
-	clientset, err := kubernetes.NewForConfig(config)
-	if err != nil {
-		return nil, nil, nil, errors.Wrap(err, "failed to create Kubernetes client")
-	}
+func EnrollUser(clientSet *kubernetes.Clientset, vaultConf *hlfv1alpha1.VaultSpecConf, request *hlfv1alpha1.VaultPKICertificateRequest, params EnrollUserRequest) (*x509.Certificate, *ecdsa.PrivateKey, *x509.Certificate, error) {
 
 	// Use the provided VaultSpecConf to get a client
-	vaultClient, err := GetClient(vaultConf, clientset)
+	vaultClient, err := GetClient(vaultConf, clientSet)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 
-	// Implementation for Vault would need to:
-	// 1. Generate or retrieve certificates and keys from Vault
-	// 2. Return appropriate certificate and key objects
-
-	ctx := context.Background()
-
-	// Example path where enrollment certificates might be stored
-	// This is just a placeholder - adjust to your actual Vault structure
-	secretPath := fmt.Sprintf("secret/data/hlf-ca/%s/users/%s", params.MSPID, params.User)
-
-	// Check if the user already has certificates in Vault
-	resp, err := vaultClient.Secrets.KvV2Read(ctx, secretPath, nil)
-	if err == nil && resp != nil {
-		// User exists, try to retrieve the certificates
-		logrus.Infof("Found existing enrollment for user %s in Vault", params.User)
-
-		// Extract certificate and key from response
-		var certPEM, keyPEM string
-
-		if certData, exists := resp.Data.Data["tls.crt"]; exists && certData != nil {
-			if certStr, ok := certData.(string); ok {
-				certPEM = certStr
-			}
-		}
-
-		if keyData, exists := resp.Data.Data["tls.key"]; exists && keyData != nil {
-			if keyStr, ok := keyData.(string); ok {
-				keyPEM = keyStr
-			}
-		}
-
-		if certPEM != "" && keyPEM != "" {
-			// Parse the certificate and key
-			userCrt, err := utils.ParseX509Certificate([]byte(certPEM))
-			if err != nil {
-				return nil, nil, nil, errors.Wrap(err, "failed to parse user certificate from Vault")
-			}
-
-			userKey, err := utils.ParseECDSAPrivateKey([]byte(keyPEM))
-			if err != nil {
-				return nil, nil, nil, errors.Wrap(err, "failed to parse user key from Vault")
-			}
-
-			// Get the CA certificate
-			caSecretPath := fmt.Sprintf("secret/data/hlf-ca/%s/ca", params.MSPID)
-			caResp, err := vaultClient.Secrets.KvV2Read(ctx, caSecretPath, nil)
-			if err != nil {
-				return nil, nil, nil, errors.Wrap(err, "failed to read CA certificate from Vault")
-			}
-
-			var caCertPEM string
-			if caCertData, exists := caResp.Data.Data["tls.crt"]; exists && caCertData != nil {
-				if caCertStr, ok := caCertData.(string); ok {
-					caCertPEM = caCertStr
-				}
-			}
-
-			if caCertPEM == "" {
-				return nil, nil, nil, errors.New("CA certificate not found in Vault")
-			}
-
-			caCrt, err := utils.ParseX509Certificate([]byte(caCertPEM))
-			if err != nil {
-				return nil, nil, nil, errors.Wrap(err, "failed to parse CA certificate from Vault")
-			}
-
-			return userCrt, userKey, caCrt, nil
-		}
-	}
-
-	// If we reach here, either the user doesn't exist or we couldn't retrieve the certificates
-	// We need to implement the enrollment logic using Vault PKI
-	return nil, nil, nil, fmt.Errorf("EnrollUser functionality not fully implemented for Vault yet")
-}
-
-func readKey(vaultClient *vault.Client, keyPath string) (*ecdsa.PrivateKey, error) {
-	// In this implementation, we read a private key from Vault
-	// This is a simplified implementation and would need to be adjusted for your specific Vault structure
-
-	// Extract the secret path and key from the provided path
-	// This assumes the path is in format 'secret/data/path/to/key'
-	ctx := context.Background()
-
-	// Read the secret from Vault
-	resp, err := vaultClient.Secrets.KvV2Read(ctx, keyPath, nil)
+	// Generate a new private key
+	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
-		return nil, errors.Wrapf(err, "failed to read key from vault path %s", keyPath)
+		return nil, nil, nil, errors.Wrap(err, "failed to generate private key")
 	}
 
-	// Extract the private key from the secret data
-	// This assumes the key is stored in a field called 'key' or 'private_key'
-	var keyPEM string
-	if keyData, exists := resp.Data.Data["private_key"]; exists && keyData != nil {
-		if keyStr, ok := keyData.(string); ok {
-			keyPEM = keyStr
-		}
-	} else if keyData, exists := resp.Data.Data["key"]; exists && keyData != nil {
-		if keyStr, ok := keyData.(string); ok {
-			keyPEM = keyStr
-		}
-	} else {
-		return nil, errors.New("private key not found in vault response")
+	// Create CSR data
+	csrData := map[string]interface{}{
+		"common_name": params.User,
+		"key_type":    "ec",
+	}
+	if len(params.Hosts) > 0 {
+		csrData["alt_names"] = strings.Join(params.Hosts, ",")
 	}
 
-	// Parse the PEM key
-	ecdsaKey, err := utils.ParseECDSAPrivateKey([]byte(keyPEM))
+	// Request certificate from Vault PKI
+	secret, err := vaultClient.Write(
+		context.Background(),
+		fmt.Sprintf("%s/issue/%s", request.PKI, request.Role),
+		csrData,
+	)
 	if err != nil {
-		return nil, errors.Wrapf(err, "failed to parse key from vault path %s", keyPath)
+		return nil, nil, nil, errors.Wrap(err, "failed to issue certificate from Vault PKI")
 	}
 
-	return ecdsaKey, nil
+	// Parse the signed certificate
+	certPEM := secret.Data["certificate"].(string)
+	block, _ := pem.Decode([]byte(certPEM))
+	if block == nil {
+		return nil, nil, nil, errors.New("failed to decode certificate PEM")
+	}
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return nil, nil, nil, errors.Wrap(err, "failed to parse certificate")
+	}
+
+	// Parse the CA certificate
+	caPEM := secret.Data["issuing_ca"].(string)
+	block, _ = pem.Decode([]byte(caPEM))
+	if block == nil {
+		return nil, nil, nil, errors.New("failed to decode CA certificate PEM")
+	}
+	caCert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return nil, nil, nil, errors.Wrap(err, "failed to parse CA certificate")
+	}
+
+	return cert, privateKey, caCert, nil
 }
 
 type GetUserRequest struct {
@@ -673,52 +620,6 @@ func GetClient(spec *hlfv1alpha1.VaultSpecConf, clientset *kubernetes.Clientset)
 
 		client.SetToken(string(tokenBytes))
 	} else if spec.Role != "" && spec.SecretIdSecretRef != nil {
-		// // Get the secret ID from the referenced secret
-		// secretNamespace := spec.SecretIdSecretRef.Namespace
-		// if secretNamespace == "" {
-		// 	secretNamespace = "default"
-		// }
-
-		// secret, err := clientset.CoreV1().Secrets(secretNamespace).Get(
-		// 	context.Background(),
-		// 	spec.SecretIdSecretRef.Name,
-		// 	v1.GetOptions{},
-		// )
-		// if err != nil {
-		// 	return nil, fmt.Errorf("failed to get secret ID secret: %w", err)
-		// }
-
-		// secretIdBytes := secret.Data[spec.SecretIdSecretRef.Key]
-		// if secretIdBytes == nil {
-		// 	return nil, fmt.Errorf("key %s not found in secret ID secret", spec.SecretIdSecretRef.Key)
-		// }
-
-		// // // Set auth path
-		// // authPath := spec.AuthPath
-		// // if authPath == "" {
-		// // 	authPath = "kubernetes"
-		// // }
-
-		// // // Login with AppRole auth method
-		// // loginOptions := vault.WithAppRoleAuth(
-		// // 	spec.Role,
-		// // 	string(secretIdBytes),
-		// // )
-		// appRoleAuth, err := approle.NewApproleAuthMethod(
-		// 	spec.Role,
-		// 	string(secretIdBytes),
-		// )
-
-		// // Authenticate with Vault
-		// err = client.Auth.Met(context.Background(), loginOptions)
-		// if err != nil {
-		// 	return nil, fmt.Errorf("failed to login to Vault using AppRole auth: %w", err)
-		// }
-
-		// // Verify we have a valid token
-		// if client.Token() == "" {
-		// 	return nil, fmt.Errorf("no auth token returned from Vault")
-		// }
 		return nil, fmt.Errorf("role and secretId not implemented yet")
 	} else {
 		return nil, fmt.Errorf("no authentication method provided for Vault")

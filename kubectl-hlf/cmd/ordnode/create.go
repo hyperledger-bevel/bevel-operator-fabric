@@ -222,7 +222,7 @@ func (c *createCmd) run(args []string) error {
 						Enrollid:     c.ordererOpts.EnrollID,
 						Enrollsecret: c.ordererOpts.EnrollPW,
 					},
-					TLS: v1alpha1.TLS{
+					TLS: v1alpha1.TLSComponent{
 						Cahost: caHost,
 						Caname: certAuth.Spec.TLSCA.Name,
 						Caport: caPort,

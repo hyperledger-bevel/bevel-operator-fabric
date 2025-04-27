@@ -4,12 +4,13 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"time"
+
 	"github.com/kfsoftware/hlf-operator/kubectl-hlf/cmd/helpers"
 	"github.com/kfsoftware/hlf-operator/pkg/apis/hlf.kungfusoftware.es/v1alpha1"
 	"github.com/spf13/cobra"
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"time"
 )
 
 type updateExternalChaincodeCmd struct {
@@ -87,7 +88,7 @@ func (c *updateExternalChaincodeCmd) run() error {
 		if err != nil {
 			return err
 		}
-		fabricChaincode.Spec.Credentials = &v1alpha1.TLS{
+		fabricChaincode.Spec.Credentials = &v1alpha1.TLSComponent{
 			Cahost: fmt.Sprintf("%s.%s", fabricCA.Name, fabricCA.Namespace),
 			Caname: "tlsca",
 			Caport: 7054,

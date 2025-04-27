@@ -5,13 +5,14 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"strconv"
+	"strings"
+	"text/template"
+
 	"github.com/kfsoftware/hlf-operator/controllers/ca"
 	operatorv1alpha1 "github.com/kfsoftware/hlf-operator/pkg/client/clientset/versioned"
 	log "github.com/sirupsen/logrus"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"strconv"
-	"strings"
-	"text/template"
 
 	"github.com/Masterminds/sprig"
 	"github.com/hyperledger/fabric-sdk-go/pkg/client/resmgmt"
@@ -673,7 +674,7 @@ func createOrdererNode(releaseName string, namespace string, params createOrdere
 						Enrollid:     enrollID,
 						Enrollsecret: enrollSecret,
 					},
-					TLS: hlfv1alpha1.TLS{
+					TLS: hlfv1alpha1.TLSComponent{
 						Cahost: caHost,
 						Caname: caName,
 						Caport: caPort,

@@ -222,13 +222,13 @@ EOF
 
 ```bash
 export PEER_IMAGE=hyperledger/fabric-peer
-export PEER_VERSION=3.0.0
+export PEER_VERSION=3.1.0
 
 export ORDERER_IMAGE=hyperledger/fabric-orderer
-export ORDERER_VERSION=3.0.0
+export ORDERER_VERSION=3.1.0
 
 export CA_IMAGE=hyperledger/fabric-ca
-export CA_VERSION=1.5.13
+export CA_VERSION=1.5.15
 ```
 
 ### Configure Internal DNS

@@ -881,7 +881,7 @@ func ReenrollSignCryptoMaterial(
 	return signCert, privateKey, signRootCert, nil
 }
 
-func getCertBytesFromCATLS(client *kubernetes.Clientset, caTls hlfv1alpha1.Catls) ([]byte, error) {
+func getCertBytesFromCATLS(client *kubernetes.Clientset, caTls *hlfv1alpha1.Catls) ([]byte, error) {
 	var signCertBytes []byte
 	var err error
 	if caTls.Cacert != "" {

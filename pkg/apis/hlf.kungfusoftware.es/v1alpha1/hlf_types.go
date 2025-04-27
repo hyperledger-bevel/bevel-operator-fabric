@@ -408,11 +408,23 @@ type Catls struct {
 	SecretRef *SecretRefNSKey `json:"secretRef"`
 }
 type Component struct {
-	Cahost       string `json:"cahost"`
-	Caname       string `json:"caname"`
-	Caport       int    `json:"caport"`
-	Catls        Catls  `json:"catls"`
-	Enrollid     string `json:"enrollid"`
+	// +optional
+	// +nullable
+	Cahost string `json:"cahost"`
+	// +optional
+	// +nullable
+	Caname string `json:"caname"`
+	// +optional
+	// +nullable
+	Caport int `json:"caport"`
+	// +optional
+	// +nullable
+	Catls *Catls `json:"catls"`
+	// +optional
+	// +nullable
+	Enrollid string `json:"enrollid"`
+	// +optional
+	// +nullable
 	Enrollsecret string `json:"enrollsecret"`
 
 	// +optional
@@ -442,13 +454,26 @@ type Csr struct {
 	CN string `json:"cn"`
 }
 type TLSComponent struct {
-	Cahost string `json:"cahost"`
-	Caname string `json:"caname"`
-	Caport int    `json:"caport"`
-	Catls  Catls  `json:"catls"`
 	// +optional
-	Csr          Csr    `json:"csr"`
-	Enrollid     string `json:"enrollid"`
+	// +nullable
+	Cahost string `json:"cahost"`
+	// +optional
+	// +nullable
+	Caname string `json:"caname"`
+	// +optional
+	// +nullable
+	Caport int `json:"caport"`
+	// +optional
+	// +nullable
+	Catls *Catls `json:"catls"`
+	// +optional
+	// +nullable
+	Csr Csr `json:"csr"`
+	// +optional
+	// +nullable
+	Enrollid string `json:"enrollid"`
+	// +optional
+	// +nullable
 	Enrollsecret string `json:"enrollsecret"`
 
 	// +optional

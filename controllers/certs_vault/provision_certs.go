@@ -426,9 +426,7 @@ func ReenrollUser(clientSet *kubernetes.Clientset, spec *hlfv1alpha1.VaultSpecCo
 
 	return cert, caCert, nil
 }
-
 func EnrollUser(clientSet *kubernetes.Clientset, vaultConf *hlfv1alpha1.VaultSpecConf, request *hlfv1alpha1.VaultPKICertificateRequest, params EnrollUserRequest) (*x509.Certificate, *ecdsa.PrivateKey, *x509.Certificate, error) {
-
 	// Use the provided VaultSpecConf to get a client
 	vaultClient, err := GetClient(vaultConf, clientSet)
 	if err != nil {
@@ -441,23 +439,51 @@ func EnrollUser(clientSet *kubernetes.Clientset, vaultConf *hlfv1alpha1.VaultSpe
 		return nil, nil, nil, errors.Wrap(err, "failed to generate private key")
 	}
 
-	// Create CSR data
-	csrData := map[string]interface{}{
-		"common_name": params.User,
-		"key_type":    "ec",
-	}
-	if len(params.Hosts) > 0 {
-		csrData["alt_names"] = strings.Join(params.Hosts, ",")
+	// Create a CSR template
+	commonName := params.User
+	if params.CN != "" {
+		commonName = params.CN
 	}
 
-	// Request certificate from Vault PKI
+	template := &x509.CertificateRequest{
+		Subject: pkix.Name{
+			CommonName: commonName,
+		},
+	}
+
+	// Add SANs if hosts are provided
+	if len(params.Hosts) > 0 {
+		template.DNSNames = params.Hosts
+	}
+
+	// Create CSR
+	csrDER, err := x509.CreateCertificateRequest(rand.Reader, template, privateKey)
+	if err != nil {
+		return nil, nil, nil, errors.Wrap(err, "failed to create CSR")
+	}
+
+	// Encode CSR to PEM
+	csrPEM := pem.EncodeToMemory(&pem.Block{
+		Type:  "CERTIFICATE REQUEST",
+		Bytes: csrDER,
+	})
+
+	// Prepare request data for Vault
+	csrData := map[string]interface{}{
+		"csr":                 string(csrPEM),
+		"common_name":         commonName,
+		"use_csr_common_name": true,
+		"use_csr_sans":        true,
+	}
+
+	// Request certificate from Vault PKI using the CSR
 	secret, err := vaultClient.Write(
 		context.Background(),
-		fmt.Sprintf("%s/issue/%s", request.PKI, request.Role),
+		fmt.Sprintf("%s/sign/%s", request.PKI, request.Role),
 		csrData,
 	)
 	if err != nil {
-		return nil, nil, nil, errors.Wrap(err, "failed to issue certificate from Vault PKI")
+		return nil, nil, nil, errors.Wrap(err, "failed to sign CSR with Vault PKI")
 	}
 
 	// Parse the signed certificate
@@ -473,11 +499,11 @@ func EnrollUser(clientSet *kubernetes.Clientset, vaultConf *hlfv1alpha1.VaultSpe
 
 	// Parse the CA certificate
 	caPEM := secret.Data["issuing_ca"].(string)
-	block, _ = pem.Decode([]byte(caPEM))
-	if block == nil {
+	caBlock, _ := pem.Decode([]byte(caPEM))
+	if caBlock == nil {
 		return nil, nil, nil, errors.New("failed to decode CA certificate PEM")
 	}
-	caCert, err := x509.ParseCertificate(block.Bytes)
+	caCert, err := x509.ParseCertificate(caBlock.Bytes)
 	if err != nil {
 		return nil, nil, nil, errors.Wrap(err, "failed to parse CA certificate")
 	}

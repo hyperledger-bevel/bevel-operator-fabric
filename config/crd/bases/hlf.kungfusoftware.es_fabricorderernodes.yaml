@@ -873,12 +873,16 @@ spec:
                       component:
                         properties:
                           cahost:
+                            nullable: true
                             type: string
                           caname:
+                            nullable: true
                             type: string
                           caport:
+                            nullable: true
                             type: integer
                           catls:
+                            nullable: true
                             properties:
                               cacert:
                                 type: string
@@ -900,8 +904,10 @@ spec:
                             - cacert
                             type: object
                           enrollid:
+                            nullable: true
                             type: string
                           enrollsecret:
+                            nullable: true
                             type: string
                           external:
                             nullable: true
@@ -1037,23 +1043,20 @@ spec:
                             - request
                             - vault
                             type: object
-                        required:
-                        - cahost
-                        - caname
-                        - caport
-                        - catls
-                        - enrollid
-                        - enrollsecret
                         type: object
                       tls:
                         properties:
                           cahost:
+                            nullable: true
                             type: string
                           caname:
+                            nullable: true
                             type: string
                           caport:
+                            nullable: true
                             type: integer
                           catls:
+                            nullable: true
                             properties:
                               cacert:
                                 type: string
@@ -1075,6 +1078,7 @@ spec:
                             - cacert
                             type: object
                           csr:
+                            nullable: true
                             properties:
                               cn:
                                 type: string
@@ -1084,8 +1088,10 @@ spec:
                                 type: array
                             type: object
                           enrollid:
+                            nullable: true
                             type: string
                           enrollsecret:
+                            nullable: true
                             type: string
                           external:
                             nullable: true
@@ -1221,13 +1227,6 @@ spec:
                             - request
                             - vault
                             type: object
-                        required:
-                        - cahost
-                        - caname
-                        - caport
-                        - catls
-                        - enrollid
-                        - enrollsecret
                         type: object
                     required:
                     - component

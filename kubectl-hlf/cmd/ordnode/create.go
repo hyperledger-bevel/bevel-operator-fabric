@@ -10,6 +10,7 @@ import (
 	"github.com/kfsoftware/hlf-operator/controllers/utils"
 	"github.com/kfsoftware/hlf-operator/kubectl-hlf/cmd/helpers"
 	"github.com/kfsoftware/hlf-operator/pkg/apis/hlf.kungfusoftware.es/v1alpha1"
+	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	corev1 "k8s.io/api/core/v1"
@@ -41,6 +42,22 @@ type OrdererOptions struct {
 	GatewayApiPort       int
 	GatewayApiHosts      []string
 	AdminGatewayApiHosts []string
+
+	CredentialStore              string
+	VaultAddress                 string
+	VaultTokenSecretName         string
+	VaultTokenSecretNamespace    string
+	VaultTokenSecretKey          string
+	VaultPKIPath                 string
+	VaultRole                    string
+	VaultTTL                     string
+	TLSVaultAddress              string
+	TLSVaultTokenSecretName      string
+	TLSVaultTokenSecretNamespace string
+	TLSVaultTokenSecretKey       string
+	TLSVaultPKIPath              string
+	TLSVaultRole                 string
+	TLSVaultTTL                  string
 }
 
 func (o OrdererOptions) Validate() error {
@@ -62,10 +79,6 @@ func (c *createCmd) run(args []string) error {
 		return err
 	}
 	clientSet, err := helpers.GetKubeClient()
-	if err != nil {
-		return err
-	}
-	certAuth, err := helpers.GetCertAuthByFullName(clientSet, oclient, c.ordererOpts.CAName)
 	if err != nil {
 		return err
 	}
@@ -140,23 +153,7 @@ func (c *createCmd) run(args []string) error {
 	}
 
 	caHost := k8sIP
-	caPort := certAuth.Status.NodePort
-	serviceType := corev1.ServiceTypeNodePort
-	if len(certAuth.Spec.Istio.Hosts) > 0 {
-		caHost = certAuth.Spec.Istio.Hosts[0]
-		caPort = certAuth.Spec.Istio.Port
-		serviceType = corev1.ServiceTypeClusterIP
-	} else if len(certAuth.Spec.GatewayApi.Hosts) > 0 {
-		caHost = certAuth.Spec.GatewayApi.Hosts[0]
-		caPort = certAuth.Spec.GatewayApi.Port
-		serviceType = corev1.ServiceTypeClusterIP
-	}
-	if c.ordererOpts.CAHost != "" {
-		caHost = c.ordererOpts.CAHost
-	}
-	if c.ordererOpts.CAPort != 0 {
-		caPort = c.ordererOpts.CAPort
-	}
+	serviceType := corev1.ServiceTypeClusterIP
 	var hostAliases []corev1.HostAlias
 	for _, hostAlias := range c.ordererOpts.HostAliases {
 		ipAndNames := strings.Split(hostAlias, ":")
@@ -179,6 +176,142 @@ func (c *createCmd) run(args []string) error {
 			})
 		}
 	}
+	var signComponent v1alpha1.Component
+	var tlsComponent v1alpha1.TLSComponent
+
+	if c.ordererOpts.CredentialStore == "vault" {
+		// Configure credentials based on the selected credential store
+
+		vaultComponent := &v1alpha1.VaultComponent{
+			Request: v1alpha1.VaultPKICertificateRequest{
+				PKI:  c.ordererOpts.VaultPKIPath,
+				Role: c.ordererOpts.VaultRole,
+				TTL:  c.ordererOpts.VaultTTL,
+			},
+			Vault: v1alpha1.VaultSpecConf{
+				URL: c.ordererOpts.VaultAddress,
+				TokenSecretRef: &v1alpha1.VaultSecretRef{
+					Name:      c.ordererOpts.VaultTokenSecretName,
+					Namespace: c.ordererOpts.VaultTokenSecretNamespace,
+					Key:       c.ordererOpts.VaultTokenSecretKey,
+				},
+			},
+		}
+
+		// Configure Vault for TLS component if specified
+		tlsVaultComponent := &v1alpha1.VaultComponent{
+			Request: v1alpha1.VaultPKICertificateRequest{
+				PKI:  c.ordererOpts.TLSVaultPKIPath,
+				Role: c.ordererOpts.TLSVaultRole,
+				TTL:  c.ordererOpts.TLSVaultTTL,
+			},
+			Vault: v1alpha1.VaultSpecConf{
+				URL: c.ordererOpts.TLSVaultAddress,
+				TokenSecretRef: &v1alpha1.VaultSecretRef{
+					Name:      c.ordererOpts.TLSVaultTokenSecretName,
+					Namespace: c.ordererOpts.TLSVaultTokenSecretNamespace,
+					Key:       c.ordererOpts.TLSVaultTokenSecretKey,
+				},
+			},
+		}
+
+		signComponent = v1alpha1.Component{
+			Vault: vaultComponent,
+		}
+		tlsComponent = v1alpha1.TLSComponent{
+			Vault: tlsVaultComponent,
+		}
+	} else if c.ordererOpts.CredentialStore == "kubernetes" {
+
+		certAuth, err := helpers.GetCertAuthByFullName(clientSet, oclient, c.ordererOpts.CAName)
+		if err != nil {
+			return err
+		}
+		caPort := certAuth.Status.NodePort
+		if len(certAuth.Spec.Istio.Hosts) > 0 {
+			caHost = certAuth.Spec.Istio.Hosts[0]
+			caPort = certAuth.Spec.Istio.Port
+		} else if len(certAuth.Spec.GatewayApi.Hosts) > 0 {
+			caHost = certAuth.Spec.GatewayApi.Hosts[0]
+			caPort = certAuth.Spec.GatewayApi.Port
+		}
+		if c.ordererOpts.CAHost != "" {
+			caHost = c.ordererOpts.CAHost
+		}
+		if c.ordererOpts.CAPort != 0 {
+			caPort = c.ordererOpts.CAPort
+		}
+		// Configure credentials based on the selected credential store
+		var vaultComponent *v1alpha1.VaultComponent
+		var tlsVaultComponent *v1alpha1.VaultComponent
+
+		// Configure Vault for enrollment component if specified
+		if c.ordererOpts.CredentialStore == "vault" && c.ordererOpts.VaultAddress != "" {
+			vaultComponent = &v1alpha1.VaultComponent{
+				Request: v1alpha1.VaultPKICertificateRequest{
+					PKI:  c.ordererOpts.VaultPKIPath,
+					Role: c.ordererOpts.VaultRole,
+					TTL:  c.ordererOpts.VaultTTL,
+				},
+				Vault: v1alpha1.VaultSpecConf{
+					URL: c.ordererOpts.VaultAddress,
+					TokenSecretRef: &v1alpha1.VaultSecretRef{
+						Name:      c.ordererOpts.VaultTokenSecretName,
+						Namespace: c.ordererOpts.VaultTokenSecretNamespace,
+						Key:       c.ordererOpts.VaultTokenSecretKey,
+					},
+				},
+			}
+		}
+
+		// Configure Vault for TLS component if specified
+		if c.ordererOpts.CredentialStore == "vault" && c.ordererOpts.TLSVaultAddress != "" {
+			tlsVaultComponent = &v1alpha1.VaultComponent{
+				Request: v1alpha1.VaultPKICertificateRequest{
+					PKI:  c.ordererOpts.TLSVaultPKIPath,
+					Role: c.ordererOpts.TLSVaultRole,
+					TTL:  c.ordererOpts.TLSVaultTTL,
+				},
+				Vault: v1alpha1.VaultSpecConf{
+					URL: c.ordererOpts.TLSVaultAddress,
+					TokenSecretRef: &v1alpha1.VaultSecretRef{
+						Name:      c.ordererOpts.TLSVaultTokenSecretName,
+						Namespace: c.ordererOpts.TLSVaultTokenSecretNamespace,
+						Key:       c.ordererOpts.TLSVaultTokenSecretKey,
+					},
+				},
+			}
+		}
+
+		signComponent = v1alpha1.Component{
+			Cahost: caHost,
+			Caport: caPort,
+			Caname: certAuth.Spec.CA.Name,
+			Catls: &v1alpha1.Catls{
+				Cacert: base64.StdEncoding.EncodeToString([]byte(certAuth.Status.TlsCert)),
+			},
+			Enrollid:     c.ordererOpts.EnrollID,
+			Enrollsecret: c.ordererOpts.EnrollPW,
+			Vault:        vaultComponent,
+		}
+		tlsComponent = v1alpha1.TLSComponent{
+			Cahost: caHost,
+			Caport: caPort,
+			Caname: certAuth.Spec.TLSCA.Name,
+			Catls: &v1alpha1.Catls{
+				Cacert: base64.StdEncoding.EncodeToString([]byte(certAuth.Status.TlsCert)),
+			},
+			Csr: v1alpha1.Csr{
+				Hosts: csrHosts,
+				CN:    "",
+			},
+			Enrollid:     c.ordererOpts.EnrollID,
+			Enrollsecret: c.ordererOpts.EnrollPW,
+			Vault:        tlsVaultComponent,
+		}
+	} else {
+		return errors.Errorf("invalid credential store: %s", c.ordererOpts.CredentialStore)
+	}
 
 	fabricOrderer := &v1alpha1.FabricOrdererNode{
 		TypeMeta: v1.TypeMeta{
@@ -190,6 +323,7 @@ func (c *createCmd) run(args []string) error {
 			Namespace: c.ordererOpts.NS,
 		},
 		Spec: v1alpha1.FabricOrdererNodeSpec{
+			CredentialStore:             v1alpha1.CredentialStore(c.ordererOpts.CredentialStore),
 			ServiceMonitor:              nil,
 			HostAliases:                 hostAliases,
 			Resources:                   corev1.ResourceRequirements{},
@@ -212,30 +346,8 @@ func (c *createCmd) run(args []string) error {
 			},
 			Secret: &v1alpha1.Secret{
 				Enrollment: v1alpha1.Enrollment{
-					Component: v1alpha1.Component{
-						Cahost: caHost,
-						Caname: certAuth.Spec.CA.Name,
-						Caport: caPort,
-						Catls: v1alpha1.Catls{
-							Cacert: base64.StdEncoding.EncodeToString([]byte(certAuth.Status.TlsCert)),
-						},
-						Enrollid:     c.ordererOpts.EnrollID,
-						Enrollsecret: c.ordererOpts.EnrollPW,
-					},
-					TLS: v1alpha1.TLSComponent{
-						Cahost: caHost,
-						Caname: certAuth.Spec.TLSCA.Name,
-						Caport: caPort,
-						Catls: v1alpha1.Catls{
-							Cacert: base64.StdEncoding.EncodeToString([]byte(certAuth.Status.TlsCert)),
-						},
-						Csr: v1alpha1.Csr{
-							Hosts: csrHosts,
-							CN:    "",
-						},
-						Enrollid:     c.ordererOpts.EnrollID,
-						Enrollsecret: c.ordererOpts.EnrollPW,
-					},
+					Component: signComponent,
+					TLS:       tlsComponent,
 				},
 			},
 			Istio:           istio,
@@ -301,5 +413,20 @@ func newCreateOrdererNodeCmd(out io.Writer, errOut io.Writer) *cobra.Command {
 	f.BoolVarP(&c.ordererOpts.Output, "output", "o", false, "Output in yaml")
 	f.StringArrayVarP(&c.ordererOpts.HostAliases, "host-aliases", "", []string{}, "Host aliases (e.g.: \"1.2.3.4:osn2.example.com,peer1.example.com\")")
 	f.StringArrayVarP(&c.ordererOpts.ImagePullSecrets, "image-pull-secrets", "", []string{}, "Image Pull Secrets for the Peer Image")
+	f.StringVar(&c.ordererOpts.CredentialStore, "credential-store", "kubernetes", "Credential store to use for the Orderer Node")
+	f.StringVar(&c.ordererOpts.VaultAddress, "vault-address", "", "Vault server address")
+	f.StringVar(&c.ordererOpts.VaultTokenSecretName, "vault-token-secret", "", "Secret name containing Vault token")
+	f.StringVar(&c.ordererOpts.VaultTokenSecretNamespace, "vault-token-secret-namespace", "default", "Namespace of the Vault token secret")
+	f.StringVar(&c.ordererOpts.VaultTokenSecretKey, "vault-token-secret-key", "", "Key in the secret containing Vault token")
+	f.StringVar(&c.ordererOpts.VaultPKIPath, "vault-pki-path", "", "Path to the PKI secrets engine in Vault")
+	f.StringVar(&c.ordererOpts.VaultRole, "vault-role", "", "Vault role to use for certificate generation")
+	f.StringVar(&c.ordererOpts.VaultTTL, "vault-ttl", "8760h", "Requested certificate TTL")
+	f.StringVar(&c.ordererOpts.TLSVaultAddress, "tls-vault-address", "", "Vault server address for TLS")
+	f.StringVar(&c.ordererOpts.TLSVaultTokenSecretName, "tls-vault-token-secret", "", "Secret name containing Vault token for TLS")
+	f.StringVar(&c.ordererOpts.TLSVaultTokenSecretNamespace, "tls-vault-token-secret-namespace", "default", "Namespace of the Vault token secret for TLS")
+	f.StringVar(&c.ordererOpts.TLSVaultTokenSecretKey, "tls-vault-token-secret-key", "", "Key in the secret containing Vault token for TLS")
+	f.StringVar(&c.ordererOpts.TLSVaultPKIPath, "tls-vault-pki-path", "", "Path to the PKI secrets engine in Vault for TLS")
+	f.StringVar(&c.ordererOpts.TLSVaultRole, "tls-vault-role", "", "Vault role to use for TLS certificate generation")
+	f.StringVar(&c.ordererOpts.TLSVaultTTL, "tls-vault-ttl", "8760h", "Requested TLS certificate TTL")
 	return cmd
 }

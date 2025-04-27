@@ -534,6 +534,9 @@ spec:
                 type: object
               credentialStore:
                 default: kubernetes
+                enum:
+                - kubernetes
+                - vault
                 type: string
               deliveryClientaddressOverrides:
                 default: []

@@ -99,7 +99,6 @@ type EnrollUserRequest struct {
 	User       string
 	Hosts      []string
 	CN         string
-	Profile    string
 	Attributes []*api.AttributeRequest
 }
 type ReenrollUserRequest struct {
@@ -107,7 +106,6 @@ type ReenrollUserRequest struct {
 	MSPID      string
 	Hosts      []string
 	CN         string
-	Profile    string
 	Attributes []*api.AttributeRequest
 }
 type GetCAInfoRequest struct {

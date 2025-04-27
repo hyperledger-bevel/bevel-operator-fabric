@@ -53,6 +53,22 @@ type Options struct {
 	CAHost                          string
 	ImagePullSecrets                []string
 	Env                             []string
+	CredentialStore                 string
+
+	VaultAddress                 string
+	VaultTokenSecretName         string
+	VaultTokenSecretNamespace    string
+	VaultTokenSecretKey          string
+	VaultPKIPath                 string
+	VaultRole                    string
+	VaultTTL                     string
+	TLSVaultAddress              string
+	TLSVaultTokenSecretName      string
+	TLSVaultTokenSecretNamespace string
+	TLSVaultTokenSecretKey       string
+	TLSVaultPKIPath              string
+	TLSVaultRole                 string
+	TLSVaultTTL                  string
 }
 
 func (o Options) Validate() error {
@@ -108,13 +124,7 @@ func (c *createCmd) run() error {
 	if err != nil {
 		return err
 	}
-	certAuth, err := helpers.GetCertAuthByFullName(clientSet, oclient, c.peerOpts.CAName)
-	if err != nil {
-		return err
-	}
-	if certAuth.Status.Status != v1alpha1.RunningStatus {
-		return errors.Errorf("ca %s is in %s status", certAuth.Name, certAuth.Status.Status)
-	}
+
 	k8sIPs, err := utils.GetPublicIPsKubernetes(clientSet)
 	if err != nil {
 		return err
@@ -227,47 +237,147 @@ func (c *createCmd) run() error {
 		couchDB.Image = c.peerOpts.CouchDBImage
 		couchDB.Tag = c.peerOpts.CouchDBTag
 	}
-	caHost := k8sIP
-	caPort := certAuth.Status.NodePort
-	serviceType := corev1.ServiceTypeNodePort
-	if len(certAuth.Spec.Istio.Hosts) > 0 {
-		caHost = certAuth.Spec.Istio.Hosts[0]
-		caPort = certAuth.Spec.Istio.Port
-		serviceType = corev1.ServiceTypeClusterIP
-	} else if len(certAuth.Spec.GatewayApi.Hosts) > 0 {
-		caHost = certAuth.Spec.GatewayApi.Hosts[0]
-		caPort = certAuth.Spec.GatewayApi.Port
-		serviceType = corev1.ServiceTypeClusterIP
-	}
-	if c.peerOpts.CAHost != "" {
-		caHost = c.peerOpts.CAHost
-	}
-	if c.peerOpts.CAPort != 0 {
-		caPort = c.peerOpts.CAPort
-	}
-	component := v1alpha1.Component{
-		Cahost: caHost,
-		Caport: caPort,
-		Caname: certAuth.Spec.CA.Name,
-		Catls: v1alpha1.Catls{
-			Cacert: base64.StdEncoding.EncodeToString([]byte(certAuth.Status.TlsCert)),
-		},
-		Enrollid:     c.peerOpts.EnrollID,
-		Enrollsecret: c.peerOpts.EnrollPW,
-	}
-	tls := v1alpha1.TLSComponent{
-		Cahost: caHost,
-		Caport: caPort,
-		Caname: certAuth.Spec.TLSCA.Name,
-		Catls: v1alpha1.Catls{
-			Cacert: base64.StdEncoding.EncodeToString([]byte(certAuth.Status.TlsCert)),
-		},
-		Csr: v1alpha1.Csr{
-			Hosts: csrHosts,
-			CN:    "",
-		},
-		Enrollid:     c.peerOpts.EnrollID,
-		Enrollsecret: c.peerOpts.EnrollPW,
+
+	var signComponent v1alpha1.Component
+	var tlsComponent v1alpha1.TLSComponent
+	serviceType := corev1.ServiceTypeClusterIP
+
+	if c.peerOpts.CredentialStore == "vault" {
+		// Configure credentials based on the selected credential store
+
+		vaultComponent := &v1alpha1.VaultComponent{
+			Request: v1alpha1.VaultPKICertificateRequest{
+				PKI:  c.peerOpts.VaultPKIPath,
+				Role: c.peerOpts.VaultRole,
+				TTL:  c.peerOpts.VaultTTL,
+			},
+			Vault: v1alpha1.VaultSpecConf{
+				URL: c.peerOpts.VaultAddress,
+				TokenSecretRef: &v1alpha1.VaultSecretRef{
+					Name:      c.peerOpts.VaultTokenSecretName,
+					Namespace: c.peerOpts.VaultTokenSecretNamespace,
+					Key:       c.peerOpts.VaultTokenSecretKey,
+				},
+			},
+		}
+
+		// Configure Vault for TLS component if specified
+		tlsVaultComponent := &v1alpha1.VaultComponent{
+			Request: v1alpha1.VaultPKICertificateRequest{
+				PKI:  c.peerOpts.TLSVaultPKIPath,
+				Role: c.peerOpts.TLSVaultRole,
+				TTL:  c.peerOpts.TLSVaultTTL,
+			},
+			Vault: v1alpha1.VaultSpecConf{
+				URL: c.peerOpts.TLSVaultAddress,
+				TokenSecretRef: &v1alpha1.VaultSecretRef{
+					Name:      c.peerOpts.TLSVaultTokenSecretName,
+					Namespace: c.peerOpts.TLSVaultTokenSecretNamespace,
+					Key:       c.peerOpts.TLSVaultTokenSecretKey,
+				},
+			},
+		}
+
+		signComponent = v1alpha1.Component{
+			Vault: vaultComponent,
+		}
+		tlsComponent = v1alpha1.TLSComponent{
+			Vault: tlsVaultComponent,
+		}
+	} else if c.peerOpts.CredentialStore == "kubernetes" {
+		certAuth, err := helpers.GetCertAuthByFullName(clientSet, oclient, c.peerOpts.CAName)
+		if err != nil {
+			return err
+		}
+		if certAuth.Status.Status != v1alpha1.RunningStatus {
+			return errors.Errorf("ca %s is in %s status", certAuth.Name, certAuth.Status.Status)
+		}
+		caHost := k8sIP
+		caPort := certAuth.Status.NodePort
+		if len(certAuth.Spec.Istio.Hosts) > 0 {
+			caHost = certAuth.Spec.Istio.Hosts[0]
+			caPort = certAuth.Spec.Istio.Port
+		} else if len(certAuth.Spec.GatewayApi.Hosts) > 0 {
+			caHost = certAuth.Spec.GatewayApi.Hosts[0]
+			caPort = certAuth.Spec.GatewayApi.Port
+		}
+		if c.peerOpts.CAHost != "" {
+			caHost = c.peerOpts.CAHost
+		}
+		if c.peerOpts.CAPort != 0 {
+			caPort = c.peerOpts.CAPort
+		}
+
+		// Configure credentials based on the selected credential store
+		var vaultComponent *v1alpha1.VaultComponent
+		var tlsVaultComponent *v1alpha1.VaultComponent
+
+		// Configure Vault for enrollment component if specified
+		if c.peerOpts.CredentialStore == "vault" && c.peerOpts.VaultAddress != "" {
+			vaultComponent = &v1alpha1.VaultComponent{
+				Request: v1alpha1.VaultPKICertificateRequest{
+					PKI:  c.peerOpts.VaultPKIPath,
+					Role: c.peerOpts.VaultRole,
+					TTL:  c.peerOpts.VaultTTL,
+				},
+				Vault: v1alpha1.VaultSpecConf{
+					URL: c.peerOpts.VaultAddress,
+					TokenSecretRef: &v1alpha1.VaultSecretRef{
+						Name:      c.peerOpts.VaultTokenSecretName,
+						Namespace: c.peerOpts.VaultTokenSecretNamespace,
+						Key:       c.peerOpts.VaultTokenSecretKey,
+					},
+				},
+			}
+		}
+
+		// Configure Vault for TLS component if specified
+		if c.peerOpts.CredentialStore == "vault" && c.peerOpts.TLSVaultAddress != "" {
+			tlsVaultComponent = &v1alpha1.VaultComponent{
+				Request: v1alpha1.VaultPKICertificateRequest{
+					PKI:  c.peerOpts.TLSVaultPKIPath,
+					Role: c.peerOpts.TLSVaultRole,
+					TTL:  c.peerOpts.TLSVaultTTL,
+				},
+				Vault: v1alpha1.VaultSpecConf{
+					URL: c.peerOpts.TLSVaultAddress,
+					TokenSecretRef: &v1alpha1.VaultSecretRef{
+						Name:      c.peerOpts.TLSVaultTokenSecretName,
+						Namespace: c.peerOpts.TLSVaultTokenSecretNamespace,
+						Key:       c.peerOpts.TLSVaultTokenSecretKey,
+					},
+				},
+			}
+		}
+
+		signComponent = v1alpha1.Component{
+			Cahost: caHost,
+			Caport: caPort,
+			Caname: certAuth.Spec.CA.Name,
+			Catls: &v1alpha1.Catls{
+				Cacert: base64.StdEncoding.EncodeToString([]byte(certAuth.Status.TlsCert)),
+			},
+			Enrollid:     c.peerOpts.EnrollID,
+			Enrollsecret: c.peerOpts.EnrollPW,
+			Vault:        vaultComponent,
+		}
+		tlsComponent = v1alpha1.TLSComponent{
+			Cahost: caHost,
+			Caport: caPort,
+			Caname: certAuth.Spec.TLSCA.Name,
+			Catls: &v1alpha1.Catls{
+				Cacert: base64.StdEncoding.EncodeToString([]byte(certAuth.Status.TlsCert)),
+			},
+			Csr: v1alpha1.Csr{
+				Hosts: csrHosts,
+				CN:    "",
+			},
+			Enrollid:     c.peerOpts.EnrollID,
+			Enrollsecret: c.peerOpts.EnrollPW,
+			Vault:        tlsVaultComponent,
+		}
+	} else {
+		return errors.Errorf("invalid credential store: %s", c.peerOpts.CredentialStore)
 	}
 
 	var hostAliases []corev1.HostAlias
@@ -307,6 +417,7 @@ func (c *createCmd) run() error {
 			Namespace: c.peerOpts.NS,
 		},
 		Spec: v1alpha1.FabricPeerSpec{
+			CredentialStore:          v1alpha1.CredentialStore(c.peerOpts.CredentialStore),
 			Env:                      envVars,
 			ServiceMonitor:           nil,
 			HostAliases:              hostAliases,
@@ -332,8 +443,8 @@ func (c *createCmd) run() error {
 			MspID:            c.peerOpts.MspID,
 			Secret: v1alpha1.Secret{
 				Enrollment: v1alpha1.Enrollment{
-					Component: component,
-					TLS:       tls,
+					Component: signComponent,
+					TLS:       tlsComponent,
 				},
 			},
 			Service: v1alpha1.PeerService{
@@ -534,5 +645,20 @@ func newCreatePeerCmd(out io.Writer, errOut io.Writer) *cobra.Command {
 	f.StringVarP(&c.peerOpts.CouchDBTag, "couchdb-tag", "", helpers.DefaultCouchDBVersion, "CouchDB version")
 	f.StringVarP(&c.peerOpts.CouchDBPassword, "couchdb-password", "", "", "CouchDB password")
 	f.StringArrayVarP(&c.peerOpts.Env, "env", "e", []string{}, "Environment variable for the Chaincode (key=value)")
+	f.StringVar(&c.peerOpts.CredentialStore, "credential-store", "kubernetes", "Credential store to use for the peer")
+	f.StringVar(&c.peerOpts.VaultAddress, "vault-address", "", "Vault server address")
+	f.StringVar(&c.peerOpts.VaultTokenSecretName, "vault-token-secret", "", "Secret name containing Vault token")
+	f.StringVar(&c.peerOpts.VaultTokenSecretNamespace, "vault-token-secret-namespace", "default", "Namespace of the Vault token secret")
+	f.StringVar(&c.peerOpts.VaultTokenSecretKey, "vault-token-secret-key", "", "Key in the secret containing Vault token")
+	f.StringVar(&c.peerOpts.VaultPKIPath, "vault-pki-path", "", "Path to the PKI secrets engine in Vault")
+	f.StringVar(&c.peerOpts.VaultRole, "vault-role", "", "Vault role to use for certificate generation")
+	f.StringVar(&c.peerOpts.VaultTTL, "vault-ttl", "8760h", "Requested certificate TTL")
+	f.StringVar(&c.peerOpts.TLSVaultAddress, "tls-vault-address", "", "Vault server address for TLS")
+	f.StringVar(&c.peerOpts.TLSVaultTokenSecretName, "tls-vault-token-secret", "", "Secret name containing Vault token for TLS")
+	f.StringVar(&c.peerOpts.TLSVaultTokenSecretNamespace, "tls-vault-token-secret-namespace", "default", "Namespace of the Vault token secret for TLS")
+	f.StringVar(&c.peerOpts.TLSVaultTokenSecretKey, "tls-vault-token-secret-key", "", "Key in the secret containing Vault token for TLS")
+	f.StringVar(&c.peerOpts.TLSVaultPKIPath, "tls-vault-pki-path", "", "Path to the PKI secrets engine in Vault for TLS")
+	f.StringVar(&c.peerOpts.TLSVaultRole, "tls-vault-role", "", "Vault role to use for TLS certificate generation")
+	f.StringVar(&c.peerOpts.TLSVaultTTL, "tls-vault-ttl", "8760h", "Requested TLS certificate TTL")
 	return cmd
 }

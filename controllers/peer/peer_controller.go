@@ -874,7 +874,6 @@ func getEnrollRequestForVault(component *hlfv1alpha1.Component, conf *hlfv1alpha
 		User:       component.Enrollid,
 		Hosts:      []string{},
 		CN:         conf.Name,
-		Profile:    profile,
 		Attributes: nil,
 	}, nil
 }
@@ -890,7 +889,6 @@ func getEnrollRequestForVaultTLS(tls *hlfv1alpha1.TLSComponent, conf *hlfv1alpha
 		User:       tls.Enrollid,
 		Hosts:      hosts,
 		CN:         conf.Name,
-		Profile:    profile,
 		Attributes: nil,
 	}, nil
 }
@@ -1034,7 +1032,6 @@ func getReenrollRequestForVault(enrollment *hlfv1alpha1.Component, conf *hlfv1al
 		MSPID:      conf.Spec.MspID,
 		Hosts:      []string{},
 		CN:         conf.Name,
-		Profile:    profile,
 		Attributes: nil,
 	}, nil
 }
@@ -1049,7 +1046,6 @@ func getReenrollRequestForVaultTLS(tls *hlfv1alpha1.TLSComponent, conf *hlfv1alp
 		MSPID:      conf.Spec.MspID,
 		Hosts:      hosts,
 		CN:         conf.Name,
-		Profile:    profile,
 		Attributes: nil,
 	}, nil
 }

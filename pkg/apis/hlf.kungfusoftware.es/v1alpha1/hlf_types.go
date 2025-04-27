@@ -267,6 +267,7 @@ type FabricPeerSpec struct {
 	Env []corev1.EnvVar `json:"env"`
 
 	// +kubebuilder:default:="kubernetes"
+	// +kubebuilder:validation:Enum=kubernetes;vault
 	CredentialStore CredentialStore `json:"credentialStore"`
 }
 
@@ -693,11 +694,8 @@ type FabricOrdererNodeSpec struct {
 	// +kubebuilder:validation:Default={}
 	Env []corev1.EnvVar `json:"env"`
 
-	// +optional
-	// +nullable
-	Vault *FabricOrdererVaultSpec `json:"vault"`
-
 	// +kubebuilder:default:="kubernetes"
+	// +kubebuilder:validation:Enum=kubernetes;vault
 	CredentialStore CredentialStore `json:"credentialStore"`
 }
 
@@ -859,6 +857,7 @@ type FabricCASpec struct {
 	Metrics   FabricCAMetrics             `json:"metrics"`
 
 	// +kubebuilder:default:="kubernetes"
+	// +kubebuilder:validation:Enum=kubernetes;vault
 	CredentialStore CredentialStore `json:"credentialStore"`
 
 	// +optional
@@ -2414,18 +2413,25 @@ type FabricIdentityList struct {
 
 // FabricIdentitySpec defines the desired state of FabricIdentity
 type FabricIdentitySpec struct {
-	// +kubebuilder:validation:MinLength=1
+	// +optional
+	// +nullable
 	Cahost string `json:"cahost"`
-	// +kubebuilder:validation:MinLength=1
+	// +optional
+	// +nullable
 	Caname string `json:"caname"`
-	Caport int    `json:"caport"`
-	Catls  Catls  `json:"catls"`
-	// +kubebuilder:validation:MinLength=1
+	// +optional
+	// +nullable
+	Caport int `json:"caport"`
+	// +optional
+	// +nullable
+	Catls *Catls `json:"catls"`
+	// +optional
+	// +nullable
 	Enrollid string `json:"enrollid"`
-	// +kubebuilder:validation:MinLength=1
+	// +optional
+	// +nullable
 	Enrollsecret string `json:"enrollsecret"`
-	// +kubebuilder:validation:MinLength=1
-	MSPID string `json:"mspid"`
+	MSPID        string `json:"mspid"`
 	// +nullable
 	// +optional
 	// +kubebuilder:validation:Optional
@@ -2437,6 +2443,14 @@ type FabricIdentitySpec struct {
 	// +optional
 	// +nullable
 	UpdateCertificateTime *metav1.Time `json:"updateCertificateTime"`
+
+	// +optional
+	// +nullable
+	Vault *VaultComponent `json:"vault"`
+
+	// +kubebuilder:default:="kubernetes"
+	// +kubebuilder:validation:Enum=kubernetes;vault
+	CredentialStore CredentialStore `json:"credentialStore"`
 }
 
 type FabricIdentityAttributeRequest struct {

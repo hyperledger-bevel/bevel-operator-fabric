@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+
 	"github.com/kfsoftware/hlf-operator/kubectl-hlf/cmd/helpers"
 	"github.com/kfsoftware/hlf-operator/pkg/apis/hlf.kungfusoftware.es/v1alpha1"
 	"github.com/spf13/cobra"
@@ -71,7 +72,7 @@ func (c *updateIdentityCmd) run() error {
 		Caname: c.ca,
 		Cahost: fabricCA.Name,
 		Caport: 7054,
-		Catls: v1alpha1.Catls{
+		Catls: &v1alpha1.Catls{
 			Cacert: base64.StdEncoding.EncodeToString([]byte(fabricCA.Status.TlsCert)),
 		},
 		Enrollid:     c.enrollId,

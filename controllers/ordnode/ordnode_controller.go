@@ -671,14 +671,14 @@ func getExistingSignCrypto(client *kubernetes.Clientset, chartName string, names
 
 func CreateTLSCryptoMaterial(client *kubernetes.Clientset, conf *hlfv1alpha1.FabricOrdererNode, enrollment *hlfv1alpha1.TLSComponent) (*x509.Certificate, *ecdsa.PrivateKey, *x509.Certificate, error) {
 	if conf.Spec.CredentialStore == hlfv1alpha1.CredentialStoreVault {
-		enrollRequest, err := getEnrollRequestForVaultTLS(enrollment, &conf.Spec, "tls")
+		enrollRequest, err := getEnrollRequestForVaultTLS(enrollment, conf, "tls")
 		if err != nil {
 			return nil, nil, nil, err
 		}
 		tlsCert, tlsKey, tlsRootCert, err := certs_vault.EnrollUser(
 			client,
-			&conf.Spec.Vault.Vault,
-			&conf.Spec.Vault.Request,
+			&enrollment.Vault.Vault,
+			&enrollment.Vault.Request,
 			enrollRequest,
 		)
 		if err != nil {
@@ -706,14 +706,14 @@ func ReenrollTLSCryptoMaterial(
 	tlsKey *ecdsa.PrivateKey,
 ) (*x509.Certificate, *ecdsa.PrivateKey, *x509.Certificate, error) {
 	if conf.Spec.CredentialStore == hlfv1alpha1.CredentialStoreVault {
-		reenrollRequest, err := getReenrollRequestForVaultTLS(enrollment, &conf.Spec, "tls")
+		reenrollRequest, err := getReenrollRequestForVaultTLS(enrollment, conf, "tls")
 		if err != nil {
 			return nil, nil, nil, err
 		}
 		tlsCert, tlsRootCert, err := certs_vault.ReenrollUser(
 			client,
-			&conf.Spec.Vault.Vault,
-			&conf.Spec.Vault.Request,
+			&enrollment.Vault.Vault,
+			&enrollment.Vault.Request,
 			reenrollRequest,
 			tlsCertPem,
 			tlsKey,
@@ -743,14 +743,14 @@ func ReenrollTLSCryptoMaterial(
 
 func CreateTLSAdminCryptoMaterial(client *kubernetes.Clientset, conf *hlfv1alpha1.FabricOrdererNode, enrollment *hlfv1alpha1.TLSComponent) (*x509.Certificate, *ecdsa.PrivateKey, *x509.Certificate, *x509.Certificate, error) {
 	if conf.Spec.CredentialStore == hlfv1alpha1.CredentialStoreVault {
-		enrollRequest, err := getEnrollRequestForVaultTLS(enrollment, &conf.Spec, "tls")
+		enrollRequest, err := getEnrollRequestForVaultTLS(enrollment, conf, "tls")
 		if err != nil {
 			return nil, nil, nil, nil, err
 		}
 		tlsCert, tlsKey, tlsRootCert, err := certs_vault.EnrollUser(
 			client,
-			&conf.Spec.Vault.Vault,
-			&conf.Spec.Vault.Request,
+			&enrollment.Vault.Vault,
+			&enrollment.Vault.Request,
 			enrollRequest,
 		)
 		if err != nil {
@@ -780,14 +780,14 @@ func ReenrollTLSAdminCryptoMaterial(
 	tlsKey *ecdsa.PrivateKey,
 ) (*x509.Certificate, *ecdsa.PrivateKey, *x509.Certificate, *x509.Certificate, error) {
 	if conf.Spec.CredentialStore == hlfv1alpha1.CredentialStoreVault {
-		reenrollRequest, err := getReenrollRequestForVaultTLS(enrollment, &conf.Spec, "tls")
+		reenrollRequest, err := getReenrollRequestForVaultTLS(enrollment, conf, "tls")
 		if err != nil {
 			return nil, nil, nil, nil, err
 		}
 		tlsCert, tlsRootCert, err := certs_vault.ReenrollUser(
 			client,
-			&conf.Spec.Vault.Vault,
-			&conf.Spec.Vault.Request,
+			&enrollment.Vault.Vault,
+			&enrollment.Vault.Request,
 			reenrollRequest,
 			tlsCertPem,
 			tlsKey,
@@ -812,16 +812,17 @@ func ReenrollTLSAdminCryptoMaterial(
 	}
 	return tlsCert, tlsKey, tlsRootCert, tlsRootCert, nil
 }
-func CreateSignCryptoMaterial(client *kubernetes.Clientset, conf *hlfv1alpha1.FabricOrdererNode, enrollment *hlfv1alpha1.Component, tlsCertString string) (*x509.Certificate, *ecdsa.PrivateKey, *x509.Certificate, error) {
+
+func CreateSignCryptoMaterial(client *kubernetes.Clientset, conf *hlfv1alpha1.FabricOrdererNode, enrollment *hlfv1alpha1.Component) (*x509.Certificate, *ecdsa.PrivateKey, *x509.Certificate, error) {
 	if conf.Spec.CredentialStore == hlfv1alpha1.CredentialStoreVault {
-		enrollRequest, err := getEnrollRequestForVault(enrollment, &conf.Spec, "ca")
+		enrollRequest, err := getEnrollRequestForVault(enrollment, conf, "ca")
 		if err != nil {
 			return nil, nil, nil, err
 		}
 		tlsCert, tlsKey, tlsRootCert, err := certs_vault.EnrollUser(
 			client,
-			&conf.Spec.Vault.Vault,
-			&conf.Spec.Vault.Request,
+			&enrollment.Vault.Vault,
+			&enrollment.Vault.Request,
 			enrollRequest,
 		)
 		if err != nil {
@@ -848,14 +849,14 @@ func ReenrollSignCryptoMaterial(
 	privateKey *ecdsa.PrivateKey,
 ) (*x509.Certificate, *ecdsa.PrivateKey, *x509.Certificate, error) {
 	if conf.Spec.CredentialStore == hlfv1alpha1.CredentialStoreVault {
-		reenrollRequest, err := getReenrollRequestForVault(enrollment, &conf.Spec, "ca")
+		reenrollRequest, err := getReenrollRequestForVault(enrollment, conf, "ca")
 		if err != nil {
 			return nil, nil, nil, err
 		}
 		signCert, signRootCert, err := certs_vault.ReenrollUser(
 			client,
-			&conf.Spec.Vault.Vault,
-			&conf.Spec.Vault.Request,
+			&enrollment.Vault.Vault,
+			&enrollment.Vault.Request,
 			reenrollRequest,
 			signCertPem,
 			privateKey,
@@ -1032,15 +1033,11 @@ func getConfig(
 		signCert, signKey, signRootCert, err = getExistingSignCrypto(client, chartName, namespace)
 		if err != nil {
 			log.Warnf("Failed to get existing sign crypto material: %s", err)
-			cacert, err := getCertBytesFromCATLS(client, signParams.Catls)
-			if err != nil {
-				return nil, errors.Wrapf(err, "failed to decode sign ca cert")
-			}
+
 			signCert, signKey, signRootCert, err = CreateSignCryptoMaterial(
 				client,
 				conf,
 				&signParams,
-				string(cacert),
 			)
 			if err != nil {
 				return nil, errors.Wrapf(err, "failed to create sign crypto material")
@@ -1525,39 +1522,37 @@ func getEnrollRequestForFabricCATLS(client *kubernetes.Clientset, enrollment *hl
 	}, nil
 }
 
-func getEnrollRequestForVault(component *hlfv1alpha1.Component, spec *hlfv1alpha1.FabricOrdererNodeSpec, profile string) (certs_vault.EnrollUserRequest, error) {
+func getEnrollRequestForVault(component *hlfv1alpha1.Component, conf *hlfv1alpha1.FabricOrdererNode, profile string) (certs_vault.EnrollUserRequest, error) {
 	return certs_vault.EnrollUserRequest{
-		MSPID:      spec.MspID,
+		MSPID:      conf.Spec.MspID,
 		User:       component.Enrollid,
 		Hosts:      []string{},
-		CN:         "",
-		Profile:    profile,
+		CN:         conf.Name,
 		Attributes: nil,
 	}, nil
 }
 
-func getEnrollRequestForVaultTLS(tls *hlfv1alpha1.TLSComponent, spec *hlfv1alpha1.FabricOrdererNodeSpec, profile string) (certs_vault.EnrollUserRequest, error) {
+func getEnrollRequestForVaultTLS(tls *hlfv1alpha1.TLSComponent, conf *hlfv1alpha1.FabricOrdererNode, profile string) (certs_vault.EnrollUserRequest, error) {
 	tlsParams := tls
 	var hosts []string
 	hosts = append(hosts, tlsParams.Csr.Hosts...)
-	if spec.Istio != nil {
-		hosts = append(hosts, spec.Istio.Hosts...)
+	if conf.Spec.Istio != nil {
+		hosts = append(hosts, conf.Spec.Istio.Hosts...)
 	}
-	if spec.Traefik != nil {
-		hosts = append(hosts, spec.Traefik.Hosts...)
+	if conf.Spec.Traefik != nil {
+		hosts = append(hosts, conf.Spec.Traefik.Hosts...)
 	}
-	if spec.AdminIstio != nil {
-		hosts = append(hosts, spec.AdminIstio.Hosts...)
+	if conf.Spec.AdminIstio != nil {
+		hosts = append(hosts, conf.Spec.AdminIstio.Hosts...)
 	}
-	if spec.AdminTraefik != nil {
-		hosts = append(hosts, spec.AdminTraefik.Hosts...)
+	if conf.Spec.AdminTraefik != nil {
+		hosts = append(hosts, conf.Spec.AdminTraefik.Hosts...)
 	}
 	return certs_vault.EnrollUserRequest{
-		MSPID:      spec.MspID,
+		MSPID:      conf.Spec.MspID,
 		User:       tls.Enrollid,
 		Hosts:      hosts,
-		CN:         "",
-		Profile:    profile,
+		CN:         conf.Name,
 		Attributes: nil,
 	}, nil
 }
@@ -1613,37 +1608,36 @@ func getReenrollRequestForFabricCATLS(client *kubernetes.Clientset, enrollment *
 	}, nil
 }
 
-func getReenrollRequestForVault(enrollment *hlfv1alpha1.Component, conf *hlfv1alpha1.FabricOrdererNodeSpec, profile string) (certs_vault.ReenrollUserRequest, error) {
+func getReenrollRequestForVault(enrollment *hlfv1alpha1.Component, conf *hlfv1alpha1.FabricOrdererNode, profile string) (certs_vault.ReenrollUserRequest, error) {
 	return certs_vault.ReenrollUserRequest{
-		MSPID:      conf.MspID,
+		MSPID:      conf.Spec.MspID,
 		Hosts:      []string{},
-		CN:         "",
-		Profile:    profile,
+		CN:         conf.Name,
 		Attributes: nil,
 	}, nil
 }
 
-func getReenrollRequestForVaultTLS(tls *hlfv1alpha1.TLSComponent, conf *hlfv1alpha1.FabricOrdererNodeSpec, profile string) (certs_vault.ReenrollUserRequest, error) {
+func getReenrollRequestForVaultTLS(tls *hlfv1alpha1.TLSComponent, conf *hlfv1alpha1.FabricOrdererNode, profile string) (certs_vault.ReenrollUserRequest, error) {
 	tlsParams := tls
 	var hosts []string
 	hosts = append(hosts, tlsParams.Csr.Hosts...)
-	if conf.Istio != nil {
-		hosts = append(hosts, conf.Istio.Hosts...)
+	if conf.Spec.Istio != nil {
+		hosts = append(hosts, conf.Spec.Istio.Hosts...)
 	}
-	if conf.Traefik != nil {
-		hosts = append(hosts, conf.Traefik.Hosts...)
+	if conf.Spec.Traefik != nil {
+		hosts = append(hosts, conf.Spec.Traefik.Hosts...)
 	}
-	if conf.AdminIstio != nil {
-		hosts = append(hosts, conf.AdminIstio.Hosts...)
+	if conf.Spec.AdminIstio != nil {
+		hosts = append(hosts, conf.Spec.AdminIstio.Hosts...)
 	}
-	if conf.AdminTraefik != nil {
-		hosts = append(hosts, conf.AdminTraefik.Hosts...)
+	if conf.Spec.AdminTraefik != nil {
+		hosts = append(hosts, conf.Spec.AdminTraefik.Hosts...)
 	}
+
 	return certs_vault.ReenrollUserRequest{
-		MSPID:      conf.MspID,
+		MSPID:      conf.Spec.MspID,
 		Hosts:      hosts,
-		CN:         "",
-		Profile:    profile,
+		CN:         conf.Name,
 		Attributes: nil,
 	}, nil
 }

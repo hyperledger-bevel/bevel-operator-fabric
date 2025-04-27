@@ -92,7 +92,7 @@ func (c *updateExternalChaincodeCmd) run() error {
 			Cahost: fmt.Sprintf("%s.%s", fabricCA.Name, fabricCA.Namespace),
 			Caname: "tlsca",
 			Caport: 7054,
-			Catls: v1alpha1.Catls{
+			Catls: &v1alpha1.Catls{
 				Cacert: base64.StdEncoding.EncodeToString([]byte(fabricCA.Status.TlsCert)),
 			},
 			Csr: v1alpha1.Csr{

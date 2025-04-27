@@ -2897,10 +2897,22 @@ type CARef struct {
 type FabricMainChannelPeerOrganization struct {
 	// MSP ID of the organization
 	MSPID string `json:"mspID"`
+
+	// +optional
 	// FabricCA Name of the organization
 	CAName string `json:"caName"`
+
+	// +optional
 	// FabricCA Namespace of the organization
 	CANamespace string `json:"caNamespace"`
+
+	// +optional
+	// TLS Root certificate authority of the orderer organization
+	TLSCACert string `json:"tlsCACert"`
+
+	// +optional
+	// Root certificate authority for signing
+	SignCACert string `json:"signCACert"`
 }
 
 type FabricMainChannelOrdererOrganization struct {

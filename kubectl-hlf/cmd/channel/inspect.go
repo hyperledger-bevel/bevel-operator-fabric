@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/golang/protobuf/proto"
 	"github.com/hyperledger/fabric-config/protolator"
+	"github.com/hyperledger/fabric-protos-go/common"
 	"github.com/hyperledger/fabric-sdk-go/pkg/client/resmgmt"
 	"github.com/hyperledger/fabric-sdk-go/pkg/core/config"
 	"github.com/hyperledger/fabric-sdk-go/pkg/fab/resource"
@@ -20,6 +22,8 @@ type inspectChannelCmd struct {
 	channelName string
 	userName    string
 	ordererName string
+	raw         bool
+	genesis     bool
 }
 
 func (c *inspectChannelCmd) validate() error {
@@ -56,10 +60,35 @@ func (c *inspectChannelCmd) run(out io.Writer) error {
 	if c.ordererName != "" {
 		resmgmtOptions = append(resmgmtOptions, resmgmt.WithOrdererEndpoint(c.ordererName))
 	}
-	block, err := resClient.QueryConfigBlockFromOrderer(c.channelName, resmgmtOptions...)
-	if err != nil {
-		return err
+
+	var block *common.Block
+	if c.genesis {
+		block, err = resClient.GenesisBlock(c.channelName, resmgmtOptions...)
+		if err != nil {
+			return fmt.Errorf("failed to fetch genesis block: %v", err)
+		}
+	} else {
+		// Fetch latest config block
+		block, err = resClient.QueryConfigBlockFromOrderer(c.channelName, resmgmtOptions...)
+		if err != nil {
+			return fmt.Errorf("failed to fetch config block: %v", err)
+		}
 	}
+
+	if c.raw {
+		// Output raw block
+		blockBytes, err := proto.Marshal(block)
+		if err != nil {
+			return err
+		}
+		_, err = out.Write(blockBytes)
+		if err != nil {
+			return err
+		}
+		return nil
+	}
+
+	// Output JSON format (default)
 	cmnConfig, err := resource.ExtractConfigFromBlock(block)
 	if err != nil {
 		return err
@@ -92,6 +121,8 @@ func newInspectChannelCMD(out io.Writer, errOut io.Writer) *cobra.Command {
 	persistentFlags.StringVarP(&c.channelName, "channel", "c", "", "Channel name")
 	persistentFlags.StringVarP(&c.configPath, "config", "", "", "Configuration file for the SDK")
 	persistentFlags.StringVarP(&c.ordererName, "orderer", "o", "", "Orderer endpoint to fetch config from (optional)")
+	persistentFlags.BoolVarP(&c.raw, "raw", "r", false, "Output raw block instead of JSON format")
+	persistentFlags.BoolVarP(&c.genesis, "genesis", "g", false, "Fetch genesis block (block 0) instead of config block")
 	cmd.MarkPersistentFlagRequired("channel")
 	cmd.MarkPersistentFlagRequired("user")
 	cmd.MarkPersistentFlagRequired("peer")

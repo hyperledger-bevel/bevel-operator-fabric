@@ -528,6 +528,8 @@ github.com/kfsoftware/fabric-config v0.0.0-20240819184344-a0b16ca530c2 h1:6wb4m/
 github.com/kfsoftware/fabric-config v0.0.0-20240819184344-a0b16ca530c2/go.mod h1:1ZfjDrsuMoM4IPKezQgTByy2vXUj8bgTXaOXaGXK5O4=
 github.com/kfsoftware/fabric-sdk-go v0.0.0-20240114221414-98466038585d h1:HcMV8Lve3QkZUIWYHP+rVIR4xtTdDPooj7Id0IdBj0o=
 github.com/kfsoftware/fabric-sdk-go v0.0.0-20240114221414-98466038585d/go.mod h1:JRplpKBeAvXjsBhOCCM/KvMRUbdDyhsAh80qbXzKc10=
+github.com/kfsoftware/fabric-sdk-go v0.0.0-20250318193343-db7cb6f42306 h1:1HeRlKS4qdrC26HAe8ZqRiuBUPiGFDY7taHuehyraRE=
+github.com/kfsoftware/fabric-sdk-go v0.0.0-20250318193343-db7cb6f42306/go.mod h1:JRplpKBeAvXjsBhOCCM/KvMRUbdDyhsAh80qbXzKc10=
 github.com/kisielk/errcheck v1.1.0/go.mod h1:EZBBE59ingxPouuu3KfxchcWSUPOHkagtvWXihfKN4Q=
 github.com/kisielk/errcheck v1.5.0/go.mod h1:pFxgyoBC7bSaBwPgfKdkLd5X25qrDl4LWUI2bnpBCr8=
 github.com/kisielk/gotool v1.0.0/go.mod h1:XhKaO+MFFWcvkIS/tQcRk01m1F5IRFswLeQ+oQHNcck=

@@ -526,8 +526,6 @@ github.com/kardianos/osext v0.0.0-20190222173326-2bc1f35cddc0 h1:iQTw/8FWTuc7uia
 github.com/kardianos/osext v0.0.0-20190222173326-2bc1f35cddc0/go.mod h1:1NbS8ALrpOvjt0rHPNLyCIeMtbizbir8U//inJ+zuB8=
 github.com/kfsoftware/fabric-config v0.0.0-20240819184344-a0b16ca530c2 h1:6wb4m/bz/rjQwAwpsOlRtWxwrPwmODVQFh7W9HJiXhc=
 github.com/kfsoftware/fabric-config v0.0.0-20240819184344-a0b16ca530c2/go.mod h1:1ZfjDrsuMoM4IPKezQgTByy2vXUj8bgTXaOXaGXK5O4=
-github.com/kfsoftware/fabric-sdk-go v0.0.0-20240114221414-98466038585d h1:HcMV8Lve3QkZUIWYHP+rVIR4xtTdDPooj7Id0IdBj0o=
-github.com/kfsoftware/fabric-sdk-go v0.0.0-20240114221414-98466038585d/go.mod h1:JRplpKBeAvXjsBhOCCM/KvMRUbdDyhsAh80qbXzKc10=
 github.com/kfsoftware/fabric-sdk-go v0.0.0-20250318193343-db7cb6f42306 h1:1HeRlKS4qdrC26HAe8ZqRiuBUPiGFDY7taHuehyraRE=
 github.com/kfsoftware/fabric-sdk-go v0.0.0-20250318193343-db7cb6f42306/go.mod h1:JRplpKBeAvXjsBhOCCM/KvMRUbdDyhsAh80qbXzKc10=
 github.com/kisielk/errcheck v1.1.0/go.mod h1:EZBBE59ingxPouuu3KfxchcWSUPOHkagtvWXihfKN4Q=

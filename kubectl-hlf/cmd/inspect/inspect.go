@@ -3,11 +3,12 @@ package inspect
 import (
 	"bytes"
 	"fmt"
-	log "github.com/sirupsen/logrus"
 	"io"
 	"io/ioutil"
-	"sigs.k8s.io/yaml"
 	"text/template"
+
+	log "github.com/sirupsen/logrus"
+	"sigs.k8s.io/yaml"
 
 	"github.com/Masterminds/sprig/v3"
 	"github.com/kfsoftware/hlf-operator/controllers/utils"
@@ -123,7 +124,7 @@ peers:
 {{- end }}
 
 {{- if not .CertAuths }}
-certificateAuthorities: []
+certificateAuthorities: {}
 {{- else }}
 certificateAuthorities:
 {{- range $ca := .CertAuths }}

@@ -75,7 +75,9 @@ func (c *createIdentityCmd) run() error {
 	if err != nil {
 		return err
 	}
-	fabricIdentitySpec := v1alpha1.FabricIdentitySpec{}
+	fabricIdentitySpec := v1alpha1.FabricIdentitySpec{
+		MSPID: c.mspID,
+	}
 
 	if c.credentialStore == hlfv1alpha1.CredentialStoreVault {
 		// Configure Vault component if Vault is selected as credential store
@@ -116,7 +118,6 @@ func (c *createIdentityCmd) run() error {
 		}
 		fabricIdentitySpec.Enrollid = c.enrollId
 		fabricIdentitySpec.Enrollsecret = c.enrollSecret
-		fabricIdentitySpec.MSPID = c.mspID
 		fabricIdentitySpec.CredentialStore = v1alpha1.CredentialStore(c.credentialStore)
 	}
 

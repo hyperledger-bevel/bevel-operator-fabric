@@ -120,7 +120,7 @@ func createPeer(releaseName string, namespace string, params createPeerParams, c
 						Cahost: caHost,
 						Caname: caName,
 						Caport: caPort,
-						Catls: hlfv1alpha1.Catls{
+						Catls: &hlfv1alpha1.Catls{
 							Cacert: base64.StdEncoding.EncodeToString([]byte(caTLSCert)),
 						},
 						Enrollid:     peerEnrollID,
@@ -130,7 +130,7 @@ func createPeer(releaseName string, namespace string, params createPeerParams, c
 						Cahost: caHost,
 						Caname: caName,
 						Caport: caPort,
-						Catls: hlfv1alpha1.Catls{
+						Catls: &hlfv1alpha1.Catls{
 							Cacert: base64.StdEncoding.EncodeToString([]byte(caTLSCert)),
 						},
 						Csr: hlfv1alpha1.Csr{

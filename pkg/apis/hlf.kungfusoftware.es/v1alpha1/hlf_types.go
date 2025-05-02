@@ -267,6 +267,8 @@ type FabricPeerSpec struct {
 	Env []corev1.EnvVar `json:"env"`
 
 	// +kubebuilder:default:="kubernetes"
+	// +optional
+	// +kubebuilder:validation:Optional
 	// +kubebuilder:validation:Enum=kubernetes;vault
 	CredentialStore CredentialStore `json:"credentialStore"`
 }
@@ -696,6 +698,8 @@ type FabricOrdererNodeSpec struct {
 
 	// +kubebuilder:default:="kubernetes"
 	// +kubebuilder:validation:Enum=kubernetes;vault
+	// +optional
+	// +kubebuilder:validation:Optional
 	CredentialStore CredentialStore `json:"credentialStore"`
 }
 
@@ -858,6 +862,8 @@ type FabricCASpec struct {
 
 	// +kubebuilder:default:="kubernetes"
 	// +kubebuilder:validation:Enum=kubernetes;vault
+	// +optional
+	// +kubebuilder:validation:Optional
 	CredentialStore CredentialStore `json:"credentialStore"`
 
 	// +optional
@@ -2450,6 +2456,8 @@ type FabricIdentitySpec struct {
 
 	// +kubebuilder:default:="kubernetes"
 	// +kubebuilder:validation:Enum=kubernetes;vault
+	// +optional
+	// +kubebuilder:validation:Optional
 	CredentialStore CredentialStore `json:"credentialStore"`
 }
 

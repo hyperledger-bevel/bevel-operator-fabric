@@ -263,7 +263,6 @@ spec:
                 - vault
                 type: object
             required:
-            - credentialStore
             - mspid
             type: object
           status:

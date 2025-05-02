@@ -668,7 +668,7 @@ func createOrdererNode(releaseName string, namespace string, params createOrdere
 						Cahost: caHost,
 						Caname: caName,
 						Caport: caPort,
-						Catls: hlfv1alpha1.Catls{
+						Catls: &hlfv1alpha1.Catls{
 							Cacert: base64.StdEncoding.EncodeToString([]byte(caTLSCert)),
 						},
 						Enrollid:     enrollID,
@@ -678,7 +678,7 @@ func createOrdererNode(releaseName string, namespace string, params createOrdere
 						Cahost: caHost,
 						Caname: caName,
 						Caport: caPort,
-						Catls: hlfv1alpha1.Catls{
+						Catls: &hlfv1alpha1.Catls{
 							Cacert: base64.StdEncoding.EncodeToString([]byte(caTLSCert)),
 						},
 						Enrollid:     enrollID,

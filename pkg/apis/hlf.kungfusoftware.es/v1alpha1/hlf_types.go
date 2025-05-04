@@ -267,8 +267,6 @@ type FabricPeerSpec struct {
 	Env []corev1.EnvVar `json:"env"`
 
 	// +kubebuilder:default:="kubernetes"
-	// +optional
-	// +kubebuilder:validation:Optional
 	// +kubebuilder:validation:Enum=kubernetes;vault
 	CredentialStore CredentialStore `json:"credentialStore"`
 }
@@ -698,8 +696,6 @@ type FabricOrdererNodeSpec struct {
 
 	// +kubebuilder:default:="kubernetes"
 	// +kubebuilder:validation:Enum=kubernetes;vault
-	// +optional
-	// +kubebuilder:validation:Optional
 	CredentialStore CredentialStore `json:"credentialStore"`
 }
 
@@ -862,8 +858,6 @@ type FabricCASpec struct {
 
 	// +kubebuilder:default:="kubernetes"
 	// +kubebuilder:validation:Enum=kubernetes;vault
-	// +optional
-	// +kubebuilder:validation:Optional
 	CredentialStore CredentialStore `json:"credentialStore"`
 
 	// +optional
@@ -1367,8 +1361,6 @@ type FabricOrdererNodeList struct {
 // +kubebuilder:resource:scope=Namespaced,shortName=ca,singular=ca
 // +kubebuilder:printcolumn:name="State",type="string",JSONPath=".status.status"
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
-// +kubebuilder:object:root=true
-// +kubebuilder:subresource:status
 // +k8s:openapi-gen=true
 
 // FabricCA is the Schema for the hlfs API
@@ -2456,8 +2448,6 @@ type FabricIdentitySpec struct {
 
 	// +kubebuilder:default:="kubernetes"
 	// +kubebuilder:validation:Enum=kubernetes;vault
-	// +optional
-	// +kubebuilder:validation:Optional
 	CredentialStore CredentialStore `json:"credentialStore"`
 }
 

@@ -737,7 +737,7 @@ func ReenrollTLSCryptoMaterial(
 		}
 		return tlsCert, tlsKey, tlsRootCert, nil
 	} else {
-		return nil, nil, nil, errors.New(fmt.Sprintf("not implemented for credential store %s", &conf.Spec.CredentialStore))
+		return nil, nil, nil, errors.New(fmt.Sprintf("not implemented for credential store %s", conf.Spec.CredentialStore))
 	}
 }
 

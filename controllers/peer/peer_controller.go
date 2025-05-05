@@ -951,7 +951,7 @@ func CreateTLSOPSCryptoMaterial(client *kubernetes.Clientset, conf *hlfv1alpha1.
 		}
 		return tlsCert, tlsKey, tlsRootCert, nil
 	} else {
-		return nil, nil, nil, errors.New(fmt.Sprintf("not implemented for credential store %s", &conf.Spec.CredentialStore))
+		return nil, nil, nil, errors.New(fmt.Sprintf("not implemented for credential store %s", conf.Spec.CredentialStore))
 	}
 }
 
@@ -982,7 +982,7 @@ func CreateSignCryptoMaterial(client *kubernetes.Clientset, conf *hlfv1alpha1.Fa
 		}
 		return tlsCert, tlsKey, tlsRootCert, nil
 	} else {
-		return nil, nil, nil, errors.New(fmt.Sprintf("not implemented for credential store %s", &conf.Spec.CredentialStore))
+		return nil, nil, nil, errors.New(fmt.Sprintf("not implemented for credential store %s", conf.Spec.CredentialStore))
 	}
 }
 
@@ -1089,7 +1089,7 @@ func ReenrollSignCryptoMaterial(
 		}
 		return signCert, privateKey, signRootCert, nil
 	} else {
-		return nil, nil, nil, errors.New(fmt.Sprintf("not implemented for credential store %s", &conf.Spec.CredentialStore))
+		return nil, nil, nil, errors.New(fmt.Sprintf("not implemented for credential store %s", conf.Spec.CredentialStore))
 	}
 }
 
@@ -1132,7 +1132,7 @@ func ReenrollTLSCryptoMaterial(
 		}
 		return tlsCert, tlsKey, tlsRootCert, nil
 	} else {
-		return nil, nil, nil, errors.New(fmt.Sprintf("not implemented for credential store %s", &conf.Spec.CredentialStore))
+		return nil, nil, nil, errors.New(fmt.Sprintf("not implemented for credential store %s", conf.Spec.CredentialStore))
 	}
 }
 

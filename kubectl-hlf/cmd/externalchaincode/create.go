@@ -91,11 +91,11 @@ func (c *createExternalChaincodeCmd) run() error {
 		if err != nil {
 			return err
 		}
-		fabricChaincodeSpec.Credentials = &v1alpha1.TLS{
+		fabricChaincodeSpec.Credentials = &v1alpha1.TLSComponent{
 			Cahost: fmt.Sprintf("%s.%s", fabricCA.Name, fabricCA.Namespace),
 			Caname: "tlsca",
 			Caport: 7054,
-			Catls: v1alpha1.Catls{
+			Catls: &v1alpha1.Catls{
 				Cacert: base64.StdEncoding.EncodeToString([]byte(fabricCA.Status.TlsCert)),
 			},
 			Csr: v1alpha1.Csr{

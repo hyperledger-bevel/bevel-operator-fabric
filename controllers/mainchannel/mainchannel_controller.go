@@ -1070,23 +1070,37 @@ func (r *FabricMainChannelReconciler) mapToConfigTX(channel *hlfv1alpha1.FabricM
 	}
 	peerOrgs := []configtx.Organization{}
 	for _, peerOrg := range channel.Spec.PeerOrganizations {
-		certAuth, err := helpers.GetCertAuthByName(
-			clientSet,
-			hlfClientSet,
-			peerOrg.CAName,
-			peerOrg.CANamespace,
-		)
-		if err != nil {
-			return configtx.Channel{}, err
+		var tlsCACert *x509.Certificate
+		var caCert *x509.Certificate
+		if peerOrg.TLSCACert != "" && peerOrg.SignCACert != "" {
+			tlsCACert, err = utils.ParseX509Certificate([]byte(peerOrg.TLSCACert))
+			if err != nil {
+				return configtx.Channel{}, err
+			}
+			caCert, err = utils.ParseX509Certificate([]byte(peerOrg.SignCACert))
+			if err != nil {
+				return configtx.Channel{}, err
+			}
+		} else {
+			certAuth, err := helpers.GetCertAuthByName(
+				clientSet,
+				hlfClientSet,
+				peerOrg.CAName,
+				peerOrg.CANamespace,
+			)
+			if err != nil {
+				return configtx.Channel{}, err
+			}
+			tlsCACert, err = utils.ParseX509Certificate([]byte(certAuth.Status.TLSCACert))
+			if err != nil {
+				return configtx.Channel{}, err
+			}
+			caCert, err = utils.ParseX509Certificate([]byte(certAuth.Status.CACert))
+			if err != nil {
+				return configtx.Channel{}, err
+			}
 		}
-		tlsCACert, err := utils.ParseX509Certificate([]byte(certAuth.Status.TLSCACert))
-		if err != nil {
-			return configtx.Channel{}, err
-		}
-		caCert, err := utils.ParseX509Certificate([]byte(certAuth.Status.CACert))
-		if err != nil {
-			return configtx.Channel{}, err
-		}
+
 		peerOrgs = append(peerOrgs, r.mapPeerOrg(peerOrg.MSPID, caCert, tlsCACert))
 	}
 	for _, peerOrg := range channel.Spec.ExternalPeerOrganizations {

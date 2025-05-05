@@ -35,6 +35,7 @@ type Options struct {
 	DBType              string
 	DBDataSource        string
 	ImagePullSecrets    []string
+	CredentialStore     string
 }
 
 func (o Options) Validate() error {
@@ -140,6 +141,7 @@ func (c *createCmd) run(_ []string) error {
 			Namespace: c.caOpts.NS,
 		},
 		Spec: v1alpha1.FabricCASpec{
+			CredentialStore: v1alpha1.CredentialStore(c.caOpts.CredentialStore),
 			Database: v1alpha1.FabricCADatabase{
 				Type:       c.caOpts.DBType,
 				Datasource: c.caOpts.DBDataSource,
@@ -341,6 +343,7 @@ func newCreateCACmd(out io.Writer, errOut io.Writer) *cobra.Command {
 	f.StringVarP(&c.caOpts.GatewayApiNamespace, "gateway-api-namespace", "", "default", "Namespace of GatewayApi")
 	f.IntVarP(&c.caOpts.GatewayApiPort, "gateway-api-port", "", 443, "Gateway port of GatewayApi")
 	f.StringArrayVarP(&c.caOpts.ImagePullSecrets, "image-pull-secrets", "", []string{}, "Image Pull Secrets for the CA Image")
+	f.StringVarP(&c.caOpts.CredentialStore, "credential-store", "", "kubernetes", "Credential store to use for the CA")
 	return cmd
 }
 

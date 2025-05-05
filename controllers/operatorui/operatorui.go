@@ -126,7 +126,7 @@ func GetOperatorUIState(conf *action.Configuration, config *rest.Config, release
 	return r, nil
 }
 
-const consoleFinalizer = "finalizer.console.hlf.kungfusoftware.es"
+const consoleFinalizer = "finalizer.operatorui.hlf.kungfusoftware.es"
 
 // +kubebuilder:rbac:groups=hlf.kungfusoftware.es,resources=fabricpeers,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=hlf.kungfusoftware.es,resources=fabricpeers/status,verbs=get;update;patch

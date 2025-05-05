@@ -447,9 +447,11 @@ spec:
                       type: string
                     mspID:
                       type: string
+                    signCACert:
+                      type: string
+                    tlsCACert:
+                      type: string
                   required:
-                  - caName
-                  - caNamespace
                   - mspID
                   type: object
                 type: array

@@ -71,6 +71,7 @@ func createPeer(releaseName string, namespace string, params createPeerParams, c
 			Namespace: namespace,
 		},
 		Spec: hlfv1alpha1.FabricPeerSpec{
+			CredentialStore:       hlfv1alpha1.CredentialStoreKubernetes,
 			UpdateCertificateTime: nil,
 			ServiceMonitor:        nil,
 			HostAliases:           nil,

@@ -228,7 +228,7 @@ func randomFabricCA(releaseName string, namespace string) *hlfv1alpha1.FabricCA 
 			Namespace: namespace,
 		},
 		Spec: hlfv1alpha1.FabricCASpec{
-
+			CredentialStore: hlfv1alpha1.CredentialStoreKubernetes,
 			Istio: &hlfv1alpha1.FabricIstio{
 				Hosts: []string{},
 			},
@@ -637,6 +637,7 @@ func createOrdererNode(releaseName string, namespace string, params createOrdere
 			Namespace: namespace,
 		},
 		Spec: hlfv1alpha1.FabricOrdererNodeSpec{
+			CredentialStore:             hlfv1alpha1.CredentialStoreKubernetes,
 			Tolerations:                 nil,
 			GRPCProxy:                   nil,
 			Affinity:                    nil,
@@ -817,6 +818,7 @@ var _ = Describe("Fabric Controllers", func() {
 				Namespace: FabricNamespace,
 			},
 			Spec: hlfv1alpha1.FabricCASpec{
+				CredentialStore: hlfv1alpha1.CredentialStoreKubernetes,
 				Istio: &hlfv1alpha1.FabricIstio{
 					Hosts: []string{},
 				},

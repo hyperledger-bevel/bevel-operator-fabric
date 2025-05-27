@@ -126,6 +126,16 @@ func main() {
 	}
 	// Register custom metrics with the global prometheus registry
 	metrics.Registry.MustRegister(hlfmetrics.CertificateExpiryTimeSeconds)
+	metrics.Registry.MustRegister(hlfmetrics.CurrentTimeSeconds)
+
+	// Start a goroutine to update the current time metric every second
+	go func() {
+		for {
+			hlfmetrics.UpdateCurrentTime()
+			time.Sleep(time.Second)
+		}
+	}()
+
 	mgr, err := ctrl.NewManager(restConfig, ctrl.Options{
 		Scheme:           scheme,
 		LeaderElection:   enableLeaderElection,

@@ -6,12 +6,13 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"fmt"
+	"strings"
+	"time"
+
 	"github.com/ghodss/yaml"
 	"github.com/go-logr/logr"
-	"github.com/golang/protobuf/proto"
-	"github.com/hyperledger/fabric-protos-go/common"
-	"github.com/hyperledger/fabric/protoutil"
 	"github.com/kfsoftware/hlf-operator/controllers/certs"
+	"github.com/kfsoftware/hlf-operator/controllers/certs_vault"
 	"github.com/kfsoftware/hlf-operator/controllers/utils"
 	"github.com/kfsoftware/hlf-operator/internal/github.com/hyperledger/fabric-ca/api"
 	hlfv1alpha1 "github.com/kfsoftware/hlf-operator/pkg/apis/hlf.kungfusoftware.es/v1alpha1"
@@ -28,8 +29,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	"strings"
-	"time"
 )
 
 // FabricIdentityReconciler reconciles a FabricIdentity object
@@ -53,7 +52,7 @@ func (r *FabricIdentityReconciler) finalizeMainChannel(reqLogger logr.Logger, m 
 
 	return nil
 }
-func getCertBytesFromCATLS(client *kubernetes.Clientset, caTls hlfv1alpha1.Catls) ([]byte, error) {
+func getCertBytesFromCATLS(client *kubernetes.Clientset, caTls *hlfv1alpha1.Catls) ([]byte, error) {
 	var signCertBytes []byte
 	var err error
 	if caTls.Cacert != "" {
@@ -127,11 +126,6 @@ func (r *FabricIdentityReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		r.setConditionStatus(ctx, fabricIdentity, hlfv1alpha1.FailedStatus, false, err, false)
 		return r.updateCRStatusOrFailReconcile(ctx, r.Log, fabricIdentity)
 	}
-	tlsCert, err := getCertBytesFromCATLS(clientSet, fabricIdentity.Spec.Catls)
-	if err != nil {
-		r.setConditionStatus(ctx, fabricIdentity, hlfv1alpha1.FailedStatus, false, err, false)
-		return r.updateCRStatusOrFailReconcile(ctx, r.Log, fabricIdentity)
-	}
 	// get secret if exists
 	secretExists := true
 	secret, err := clientSet.CoreV1().Secrets(fabricIdentity.Namespace).Get(ctx, fabricIdentity.Name, v1.GetOptions{})
@@ -146,7 +140,7 @@ func (r *FabricIdentityReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	var x509Cert *x509.Certificate
 	var pk *ecdsa.PrivateKey
 	var rootCert *x509.Certificate
-	if fabricIdentity.Spec.Register != nil {
+	if fabricIdentity.Spec.Register != nil && fabricIdentity.Spec.CredentialStore == hlfv1alpha1.CredentialStoreKubernetes {
 		log.Infof("Registering user %s", fabricIdentity.Spec.Enrollid)
 		attributes := []api.Attribute{}
 		for _, attr := range fabricIdentity.Spec.Register.Attributes {
@@ -155,6 +149,12 @@ func (r *FabricIdentityReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 				Value: attr.Value,
 				ECert: attr.ECert,
 			})
+		}
+
+		tlsCert, err := getCertBytesFromCATLS(clientSet, fabricIdentity.Spec.Catls)
+		if err != nil {
+			r.setConditionStatus(ctx, fabricIdentity, hlfv1alpha1.FailedStatus, false, err, false)
+			return r.updateCRStatusOrFailReconcile(ctx, r.Log, fabricIdentity)
 		}
 		_, err = certs.RegisterUser(certs.RegisterUserRequest{
 			TLSCert:      string(tlsCert),
@@ -213,19 +213,7 @@ func (r *FabricIdentityReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 		log.Infof("Crypto material needs to be renewed: %v", certificatesNeedToBeRenewed)
 		if certificatesNeedToBeRenewed {
-			x509Cert, rootCert, err = certs.ReenrollUser(
-				certs.ReenrollUserRequest{
-					EnrollID:   fabricIdentity.Spec.Enrollid,
-					TLSCert:    string(tlsCert),
-					URL:        fmt.Sprintf("https://%s:%d", fabricIdentity.Spec.Cahost, fabricIdentity.Spec.Caport),
-					Name:       fabricIdentity.Spec.Caname,
-					MSPID:      fabricIdentity.Spec.MSPID,
-					Hosts:      []string{},
-					Attributes: requests,
-				},
-				string(utils.EncodeX509Certificate(x509Cert)),
-				pk,
-			)
+			x509Cert, pk, rootCert, err = ReenrollSignCryptoMaterial(clientSet, fabricIdentity, string(utils.EncodeX509Certificate(x509Cert)), pk)
 			authenticationFailure := false
 			if err != nil {
 				if strings.Contains(err.Error(), "Authentication failure") {
@@ -236,18 +224,9 @@ func (r *FabricIdentityReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 				}
 			}
 			if authenticationFailure {
-				r.Log.Info(fmt.Sprintf("Re enroll failed because of credentials, falling back to enroll"))
+				r.Log.Info(fmt.Sprintf("Re enroll failed because of credentials, falling back to enroll: %v", err))
 				// just enroll the user
-				x509Cert, pk, rootCert, err = certs.EnrollUser(certs.EnrollUserRequest{
-					TLSCert:    string(tlsCert),
-					URL:        fmt.Sprintf("https://%s:%d", fabricIdentity.Spec.Cahost, fabricIdentity.Spec.Caport),
-					Name:       fabricIdentity.Spec.Caname,
-					MSPID:      fabricIdentity.Spec.MSPID,
-					User:       fabricIdentity.Spec.Enrollid,
-					Secret:     fabricIdentity.Spec.Enrollsecret,
-					Hosts:      []string{},
-					Attributes: requests,
-				})
+				x509Cert, pk, rootCert, err = CreateSignCryptoMaterial(clientSet, fabricIdentity)
 				if err != nil {
 					if strings.Contains(err.Error(), "Authentication failure") {
 						r.setConditionStatus(ctx, fabricIdentity, hlfv1alpha1.FailedStatus, false, errors.New("enroll secret is not correct"), false)
@@ -260,16 +239,7 @@ func (r *FabricIdentityReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 		}
 	} else {
-		x509Cert, pk, rootCert, err = certs.EnrollUser(certs.EnrollUserRequest{
-			TLSCert:    string(tlsCert),
-			URL:        fmt.Sprintf("https://%s:%d", fabricIdentity.Spec.Cahost, fabricIdentity.Spec.Caport),
-			Name:       fabricIdentity.Spec.Caname,
-			MSPID:      fabricIdentity.Spec.MSPID,
-			User:       fabricIdentity.Spec.Enrollid,
-			Secret:     fabricIdentity.Spec.Enrollsecret,
-			Hosts:      []string{},
-			Attributes: requests,
-		})
+		x509Cert, pk, rootCert, err = CreateSignCryptoMaterial(clientSet, fabricIdentity)
 		if err != nil {
 			if strings.Contains(err.Error(), "Authentication failure") {
 				r.setConditionStatus(ctx, fabricIdentity, hlfv1alpha1.FailedStatus, false, errors.New("enroll secret is not correct"), false)
@@ -432,21 +402,127 @@ type Pem struct {
 	Pem string
 }
 
-func CreateConfigUpdateEnvelope(channelID string, configUpdate *common.ConfigUpdate) ([]byte, error) {
-	configUpdate.ChannelId = channelID
-	configUpdateData, err := proto.Marshal(configUpdate)
-	if err != nil {
-		return nil, err
+func CreateSignCryptoMaterial(client *kubernetes.Clientset, conf *hlfv1alpha1.FabricIdentity) (*x509.Certificate, *ecdsa.PrivateKey, *x509.Certificate, error) {
+	if conf.Spec.CredentialStore == hlfv1alpha1.CredentialStoreVault {
+		enrollRequest, err := getEnrollRequestForVault(conf)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		tlsCert, tlsKey, tlsRootCert, err := certs_vault.EnrollUser(
+			client,
+			&conf.Spec.Vault.Vault,
+			&conf.Spec.Vault.Request,
+			enrollRequest,
+		)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		return tlsCert, tlsKey, tlsRootCert, nil
 	}
-	configUpdateEnvelope := &common.ConfigUpdateEnvelope{}
-	configUpdateEnvelope.ConfigUpdate = configUpdateData
-	envelope, err := protoutil.CreateSignedEnvelope(common.HeaderType_CONFIG_UPDATE, channelID, nil, configUpdateEnvelope, 0, 0)
+	enrollRequest, err := getEnrollRequestForFabricCA(client, conf)
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, err
 	}
-	envelopeData, err := proto.Marshal(envelope)
+	tlsCert, tlsKey, tlsRootCert, err := certs.EnrollUser(enrollRequest)
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, err
 	}
-	return envelopeData, nil
+	return tlsCert, tlsKey, tlsRootCert, nil
+}
+
+func getEnrollRequestForFabricCA(client *kubernetes.Clientset, conf *hlfv1alpha1.FabricIdentity) (certs.EnrollUserRequest, error) {
+	cacert, err := getCertBytesFromCATLS(client, conf.Spec.Catls)
+	if err != nil {
+		return certs.EnrollUserRequest{}, err
+	}
+	tlsCAUrl := fmt.Sprintf("https://%s:%d", conf.Spec.Cahost, conf.Spec.Caport)
+	return certs.EnrollUserRequest{
+		Hosts:      []string{},
+		CN:         "",
+		Profile:    conf.Spec.Caname,
+		Attributes: nil,
+		User:       conf.Spec.Enrollid,
+		Secret:     conf.Spec.Enrollsecret,
+		URL:        tlsCAUrl,
+		Name:       conf.Spec.Caname,
+		MSPID:      conf.Spec.MSPID,
+		TLSCert:    string(cacert),
+	}, nil
+}
+
+func getEnrollRequestForVault(conf *hlfv1alpha1.FabricIdentity) (certs_vault.EnrollUserRequest, error) {
+	return certs_vault.EnrollUserRequest{
+		MSPID:      conf.Spec.MSPID,
+		User:       conf.Spec.Enrollid,
+		Hosts:      []string{},
+		CN:         conf.Name,
+		Attributes: nil,
+	}, nil
+}
+
+func ReenrollSignCryptoMaterial(
+	client *kubernetes.Clientset,
+	conf *hlfv1alpha1.FabricIdentity,
+	signCertPem string,
+	privateKey *ecdsa.PrivateKey,
+) (*x509.Certificate, *ecdsa.PrivateKey, *x509.Certificate, error) {
+	if conf.Spec.CredentialStore == hlfv1alpha1.CredentialStoreVault {
+		reenrollRequest, err := getReenrollRequestForVault(conf)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		signCert, signRootCert, err := certs_vault.ReenrollUser(
+			client,
+			&conf.Spec.Vault.Vault,
+			&conf.Spec.Vault.Request,
+			reenrollRequest,
+			signCertPem,
+			privateKey,
+		)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		return signCert, privateKey, signRootCert, nil
+	}
+
+	reenrollRequest, err := getReenrollRequestForFabricCA(client, conf, conf.Spec.Caname)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	signCert, signRootCert, err := certs.ReenrollUser(
+		reenrollRequest,
+		signCertPem,
+		privateKey,
+	)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	return signCert, privateKey, signRootCert, nil
+}
+
+func getReenrollRequestForFabricCA(client *kubernetes.Clientset, conf *hlfv1alpha1.FabricIdentity, profile string) (certs.ReenrollUserRequest, error) {
+	cacert, err := getCertBytesFromCATLS(client, conf.Spec.Catls)
+	if err != nil {
+		return certs.ReenrollUserRequest{}, err
+	}
+	tlsCAUrl := fmt.Sprintf("https://%s:%d", conf.Spec.Cahost, conf.Spec.Caport)
+	return certs.ReenrollUserRequest{
+		TLSCert:  string(cacert),
+		Hosts:    []string{},
+		CN:       "",
+		Profile:  profile,
+		URL:      tlsCAUrl,
+		Name:     conf.Spec.Caname,
+		EnrollID: conf.Spec.Enrollid,
+		MSPID:    conf.Spec.MSPID,
+	}, nil
+}
+
+func getReenrollRequestForVault(conf *hlfv1alpha1.FabricIdentity) (certs_vault.ReenrollUserRequest, error) {
+	return certs_vault.ReenrollUserRequest{
+		MSPID:      conf.Spec.MSPID,
+		Hosts:      []string{},
+		CN:         conf.Name,
+		Attributes: nil,
+	}, nil
 }

@@ -150,7 +150,7 @@ peers:
 {{- end }}
 
 {{- if not .CertAuths }}
-certificateAuthorities: []
+certificateAuthorities: {}
 {{- else }}
 certificateAuthorities:
 {{- range $ca := .CertAuths }}

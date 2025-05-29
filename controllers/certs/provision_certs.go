@@ -4,9 +4,10 @@ import (
 	"crypto/ecdsa"
 	"crypto/x509"
 	"fmt"
-	"github.com/sirupsen/logrus"
 	"io/ioutil"
 	"path/filepath"
+
+	"github.com/sirupsen/logrus"
 
 	"github.com/hyperledger/fabric/bccsp"
 	bccsputils "github.com/hyperledger/fabric/bccsp/utils"

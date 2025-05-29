@@ -2,6 +2,8 @@ package hlfmetrics
 
 import (
 	"crypto/x509"
+	"time"
+
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -12,6 +14,13 @@ var (
 			Help: "The date after which the certificate expires. Expressed as a Unix Epoch Time.",
 		},
 		[]string{"node_type", "crt_type", "namespace", "name"},
+	)
+
+	CurrentTimeSeconds = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "hlf_operator_current_time_seconds",
+			Help: "The current time in Unix Epoch Time.",
+		},
 	)
 )
 
@@ -30,4 +39,8 @@ func UpdateCertificateExpiry(
 		"node_type": nodeType,
 		"crt_type":  crtType,
 	}).Set(expiryTime)
+}
+
+func UpdateCurrentTime() {
+	CurrentTimeSeconds.Set(float64(time.Now().Unix()))
 }

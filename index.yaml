@@ -1,0 +1,14 @@
+apiVersion: v1
+entries:
+  hlf-operator:
+  - apiVersion: v2
+    appVersion: 1.16.0
+    created: "2025-06-11T15:26:48.472957454Z"
+    description: A Helm chart for Kubernetes
+    digest: 979eab33f9e908a8fce43971522c759c0ff1fc9f6d86235bc9b4fabf8500a73c
+    name: hlf-operator
+    type: application
+    urls:
+    - https://github.com/hyperledger-bevel/bevel-operator-fabric/releases/download/hlf-operator-1.11.0/hlf-operator-1.11.0.tgz
+    version: 1.11.0
+generated: "2025-06-11T15:26:48.472966872Z"

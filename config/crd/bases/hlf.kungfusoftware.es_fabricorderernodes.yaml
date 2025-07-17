@@ -1130,6 +1130,8 @@ spec:
             properties:
               adminPort:
                 type: integer
+              certRenewalLeaseHeld:
+                type: boolean
               conditions:
                 items:
                   properties:

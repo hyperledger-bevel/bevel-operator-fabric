@@ -713,6 +713,8 @@ type FabricOrdererNodeStatus struct {
 	NodePort int `json:"port"`
 	// +optional
 	Message string `json:"message"`
+	// +optional
+	CertRenewalLeaseHeld bool `json:"certRenewalLeaseHeld,omitempty"`
 }
 
 type Cors struct {
@@ -1183,8 +1185,6 @@ type FabricOrdererNodeList struct {
 // +kubebuilder:resource:scope=Namespaced,shortName=ca,singular=ca
 // +kubebuilder:printcolumn:name="State",type="string",JSONPath=".status.status"
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
-// +kubebuilder:object:root=true
-// +kubebuilder:subresource:status
 // +k8s:openapi-gen=true
 
 // FabricCA is the Schema for the hlfs API

@@ -8,12 +8,13 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
-	"helm.sh/helm/v3/pkg/release"
 	"os"
 	"reflect"
 	"sort"
 	"strings"
 	"time"
+
+	"helm.sh/helm/v3/pkg/release"
 
 	"github.com/go-logr/logr"
 	"github.com/kfsoftware/hlf-operator/controllers/certs"
@@ -225,13 +226,58 @@ func (r *FabricOrdererNodeReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		}
 		requeueAfter := time.Second * 10
 		log.Infof("Last time certs were updated: %v, they need to be renewed: %v", lastTimeCertsRenewed, certificatesNeedToBeRenewed)
+
+		// --- RELEASE LEASE IF HELD AND STATUS IS RUNNING ---
+		if fabricOrdererNode.Status.CertRenewalLeaseHeld && fabricOrdererNode.Status.Status == hlfv1alpha1.RunningStatus {
+			leaseName := "orderernode-cert-renewal-global-lock"
+			holderIdentity := os.Getenv("POD_NAME")
+			if holderIdentity == "" {
+				holderIdentity = fmt.Sprintf("orderernode-%s-lock", fabricOrdererNode.Name)
+			}
+			err := utils.ReleaseLease(ctx, clientSet, leaseName, ns, holderIdentity)
+			if err != nil {
+				log.Warnf("Error releasing lease: %v", err)
+			} else {
+				log.Infof("Released cert renewal lease for %s", fabricOrdererNode.Name)
+			}
+			fabricOrdererNode.Status.CertRenewalLeaseHeld = false
+			if err := r.Status().Update(ctx, fabricOrdererNode); err != nil {
+				log.Errorf("Error updating status after releasing lease: %v", err)
+			}
+		}
+
 		if certificatesNeedToBeRenewed {
+			// Lease-based lock for cert renewal (global lock)
+			leaseName := "orderernode-cert-renewal-global-lock"
+			holderIdentity := os.Getenv("POD_NAME")
+			if holderIdentity == "" {
+				holderIdentity = fmt.Sprintf("orderernode-%s-lock", fabricOrdererNode.Name)
+			}
+			leaseTTL := int32(120)
+			acquired := false
+			for i := 0; i < 5; i++ { // try for ~5 seconds
+				ok, err := utils.AcquireLease(ctx, clientSet, leaseName, ns, holderIdentity, leaseTTL)
+				if err != nil {
+					log.Warnf("Error acquiring lease: %v", err)
+				}
+				if ok {
+					acquired = true
+					break
+				}
+				time.Sleep(time.Second)
+			}
+			if !acquired {
+				log.Warnf("Could not acquire cert renewal lock for %s, skipping renewal", fabricOrdererNode.Name)
+				return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+			}
+			// Set lease held flag
+			fabricOrdererNode.Status.CertRenewalLeaseHeld = true
+			if err := r.Status().Update(ctx, fabricOrdererNode); err != nil {
+				log.Errorf("Error updating status after acquiring lease: %v", err)
+			}
 			// must update the certificates and block until it's done
-			// scale down to zero replicas
-			// wait for the deployment to scale down
-			// update the certs
-			// scale up the peer
-			log.Infof("Trying to upgrade certs")
+			log.Infof("Trying to upgrade certs (lease acquired)")
+			r.setConditionStatus(ctx, fabricOrdererNode, hlfv1alpha1.UpdatingCertificates, false, nil, false)
 			err := r.updateCerts(req, fabricOrdererNode, clientSet, releaseName, ctx, cfg, ns)
 			if err != nil {
 				log.Errorf("Error renewing certs: %v", err)
@@ -247,7 +293,7 @@ func (r *FabricOrdererNodeReconciler) Reconcile(ctx context.Context, req ctrl.Re
 			if err != nil {
 				return ctrl.Result{}, err
 			}
-			err = r.upgradeChart(cfg, err, ns, releaseName, c)
+			err = r.upgradeChartWithWait(cfg, err, ns, releaseName, c, false, 5*time.Minute)
 			if err != nil {
 				r.setConditionStatus(ctx, fabricOrdererNode, hlfv1alpha1.FailedStatus, false, err, false)
 				return r.updateCRStatusOrFailReconcile(ctx, r.Log, fabricOrdererNode)
@@ -449,8 +495,10 @@ func (r *FabricOrdererNodeReconciler) updateCerts(req ctrl.Request, node *hlfv1a
 		log.Errorf("Error getting the config: %v", err)
 		return errors.Wrapf(err, "Error getting the config: %v", err)
 	}
-	//config.Replicas = 0
-	err = r.upgradeChart(cfg, err, ns, releaseName, config)
+	// Force Wait=true and Timeout=5m for cert renewal
+	wait := true
+	timeout := 5 * time.Minute
+	err = r.upgradeChartWithWait(cfg, err, ns, releaseName, config, wait, timeout)
 	if err != nil {
 		return errors.Wrapf(err, "Error upgrading the chart: %v", err)
 	}
@@ -472,12 +520,16 @@ func (r *FabricOrdererNodeReconciler) updateCerts(req ctrl.Request, node *hlfv1a
 	}
 	return nil
 }
-func (r *FabricOrdererNodeReconciler) upgradeChart(
+
+// upgradeChartWithWait is like upgradeChart but allows overriding Wait/Timeout
+func (r *FabricOrdererNodeReconciler) upgradeChartWithWait(
 	cfg *action.Configuration,
 	err error,
 	ns string,
 	releaseName string,
 	c *fabricOrdChart,
+	wait bool,
+	timeout time.Duration,
 ) error {
 	inrec, err := json.Marshal(c)
 	if err != nil {
@@ -502,8 +554,8 @@ func (r *FabricOrdererNodeReconciler) upgradeChart(
 	if err != nil {
 		return err
 	}
-	cmd.Wait = r.Wait
-	cmd.Timeout = r.Timeout
+	cmd.Wait = wait
+	cmd.Timeout = timeout
 	cmd.MaxHistory = r.MaxHistory
 
 	release, err := cmd.Run(releaseName, ch, inInterface)

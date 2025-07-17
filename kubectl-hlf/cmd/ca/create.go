@@ -150,6 +150,7 @@ func (c *createCmd) run(_ []string) error {
 			},
 			Image:            c.caOpts.Image,
 			ImagePullSecrets: imagePullSecrets,
+			Replicas:         1,
 			Version:          c.caOpts.Version,
 			Debug:            false,
 			Istio:            istio,

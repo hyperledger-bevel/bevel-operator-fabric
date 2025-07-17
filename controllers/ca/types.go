@@ -27,6 +27,7 @@ type FabricCAChart struct {
 	ServiceMonitor   ServiceMonitor                `json:"serviceMonitor"`
 	EnvVars          []corev1.EnvVar               `json:"envVars"`
 	ImagePullSecrets []corev1.LocalObjectReference `json:"imagePullSecrets"`
+	Replicas         int                           `json:"replicas"`
 }
 type ServiceMonitor struct {
 	Enabled           bool              `json:"enabled"`

@@ -502,22 +502,6 @@ func (r *FabricOrdererNodeReconciler) updateCerts(req ctrl.Request, node *hlfv1a
 	if err != nil {
 		return errors.Wrapf(err, "Error upgrading the chart: %v", err)
 	}
-	dep, err := GetOrdererDeployment(
-		cfg,
-		r.Config,
-		releaseName,
-		req.Namespace,
-	)
-	if err != nil {
-		return errors.Wrapf(err, "Error getting the deployment: %v", err)
-	}
-	err = restartDeployment(
-		r.Config,
-		dep,
-	)
-	if err != nil {
-		return errors.Wrapf(err, "Error restarting the deployment: %v", err)
-	}
 	return nil
 }
 

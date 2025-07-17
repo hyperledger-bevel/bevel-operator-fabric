@@ -2256,6 +2256,8 @@ spec:
             type: object
           status:
             properties:
+              certRenewalLeaseHeld:
+                type: boolean
               conditions:
                 items:
                   properties:

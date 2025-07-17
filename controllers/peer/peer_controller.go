@@ -453,13 +453,58 @@ func (r *FabricPeerReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		}
 		requeueAfter := time.Second * 10
 		log.Infof("Peer: Last time certs were updated: %v, they need to be renewed: %v", lastTimeCertsRenewed, certificatesNeedToBeRenewed)
+
+		// --- RELEASE LEASE IF HELD AND STATUS IS RUNNING ---
+		if fabricPeer.Status.CertRenewalLeaseHeld && fabricPeer.Status.Status == hlfv1alpha1.RunningStatus {
+			leaseName := "peer-cert-renewal-global-lock"
+			holderIdentity := os.Getenv("POD_NAME")
+			if holderIdentity == "" {
+				holderIdentity = fmt.Sprintf("peer-%s-lock", fabricPeer.Name)
+			}
+			err := utils.ReleaseLease(ctx, clientSet, leaseName, ns, holderIdentity)
+			if err != nil {
+				log.Warnf("Error releasing lease: %v", err)
+			} else {
+				log.Infof("Released cert renewal lease for %s", fabricPeer.Name)
+			}
+			fabricPeer.Status.CertRenewalLeaseHeld = false
+			if err := r.Status().Update(ctx, fabricPeer); err != nil {
+				log.Errorf("Error updating status after releasing lease: %v", err)
+			}
+		}
+
 		if certificatesNeedToBeRenewed {
+			// Lease-based lock for cert renewal (global lock)
+			leaseName := "peer-cert-renewal-global-lock"
+			holderIdentity := os.Getenv("POD_NAME")
+			if holderIdentity == "" {
+				holderIdentity = fmt.Sprintf("peer-%s-lock", fabricPeer.Name)
+			}
+			leaseTTL := int32(120)
+			acquired := false
+			for i := 0; i < 5; i++ { // try for ~5 seconds
+				ok, err := utils.AcquireLease(ctx, clientSet, leaseName, ns, holderIdentity, leaseTTL)
+				if err != nil {
+					log.Warnf("Error acquiring lease: %v", err)
+				}
+				if ok {
+					acquired = true
+					break
+				}
+				time.Sleep(time.Second)
+			}
+			if !acquired {
+				log.Warnf("Could not acquire cert renewal lock for %s, skipping renewal", fabricPeer.Name)
+				return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+			}
+			// Set lease held flag
+			fabricPeer.Status.CertRenewalLeaseHeld = true
+			if err := r.Status().Update(ctx, fabricPeer); err != nil {
+				log.Errorf("Error updating status after acquiring lease: %v", err)
+			}
 			// must update the certificates and block until it's done
-			// scale down to zero replicas
-			// wait for the deployment to scale down
-			// update the certs
-			// scale up the peer
-			log.Infof("Trying to upgrade certs")
+			log.Infof("Trying to upgrade certs (lease acquired)")
+			r.setConditionStatus(ctx, fabricPeer, hlfv1alpha1.UpdatingCertificates, false, nil, false)
 			err := r.updateCerts(req, fabricPeer, clientSet, releaseName, svc, ctx, cfg, ns)
 			if err != nil {
 				log.Errorf("Error renewing certs: %v", err)
@@ -613,22 +658,6 @@ func (r *FabricPeerReconciler) updateCerts(req ctrl.Request, fPeer *hlfv1alpha1.
 		return err
 	}
 	err = r.upgradeChart(cfg, err, ns, releaseName, config)
-	if err != nil {
-		return err
-	}
-	dep, err := GetPeerDeployment(
-		cfg,
-		r.Config,
-		releaseName,
-		req.Namespace,
-	)
-	if err != nil {
-		return err
-	}
-	err = restartDeployment(
-		r.Config,
-		dep,
-	)
 	if err != nil {
 		return err
 	}

@@ -803,7 +803,9 @@ type FabricCASpec struct {
 	Env []corev1.EnvVar `json:"env"`
 
 	// +kubebuilder:default:=1
-	Replicas int `json:"replicas"`
+	// +optional
+	// +nullable
+	Replicas *int `json:"replicas"`
 }
 
 type FabricCATLSConf struct {

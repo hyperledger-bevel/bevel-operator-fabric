@@ -31,11 +31,27 @@ jobs:
 
       - name: Test
         run: make test
+
       - name: Show information
         if: ${{ failure() }}
         run: |
           kubectl get nodes -o=wide
           kubectl get pods -o=wide -A
+          kubectl get service -o=wide -A
+          kubectl get crds
           kubectl get fabricpeers.hlf.kungfusoftware.es  -A -o=custom-columns='NAME:metadata.name,NAMESPACE:metadata.namespace,STATE:status.status,MESSAGE:status.message'
           kubectl get fabricorderernodes.hlf.kungfusoftware.es  -A -o=custom-columns='NAME:metadata.name,NAMESPACE:metadata.namespace,STATE:status.status,MESSAGE:status.message'
           kubectl get fabriccas.hlf.kungfusoftware.es -A -o=custom-columns='NAME:metadata.name,NAMESPACE:metadata.namespace,STATE:status.status,MESSAGE:status.message'
+          kubectl get fabricmainchannels.hlf.kungfusoftware.es -A -o=custom-columns='NAME:metadata.name,NAMESPACE:metadata.namespace,STATE:status.status,MESSAGE:status.message'
+          kubectl get fabricfollowerchannels.hlf.kungfusoftware.es -A -o=custom-columns='NAME:metadata.name,NAMESPACE:metadata.namespace,STATE:status.status,MESSAGE:status.message'
+          kubectl get configmap coredns -n kube-system -o yaml
+          echo "Logs for hlf-operator deployment:"
+          kubectl logs -l app.kubernetes.io/name=hlf-operator -c manager --tail 2500 
+          kubectl get fabricmainchannels  -o yaml
+          kubectl get fabricfollowerchannels  -o yaml
+
+          POD=$(kubectl get pod -l 'release in (org1-peer0)'  -o jsonpath="{.items[0].metadata.name}")
+          kubectl logs $POD -c peer
+
+          POD=$(kubectl get pod -l 'release in (ord-node1)'  -o jsonpath="{.items[0].metadata.name}")
+          kubectl logs $POD

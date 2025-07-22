@@ -2466,7 +2466,6 @@ spec:
                 type: array
             required:
             - couchdb
-            - credentialStore
             - discovery
             - dockerSocketPath
             - externalEndpoint

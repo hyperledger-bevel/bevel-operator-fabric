@@ -1346,7 +1346,6 @@ spec:
             required:
             - bootstrapMethod
             - channelParticipationEnabled
-            - credentialStore
             - genesis
             - image
             - mspID

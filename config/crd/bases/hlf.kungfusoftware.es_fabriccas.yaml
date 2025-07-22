@@ -1670,7 +1670,6 @@ spec:
             - ca
             - clrSizeLimit
             - cors
-            - credentialStore
             - db
             - debug
             - hosts

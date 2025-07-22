@@ -834,6 +834,7 @@ func CreateSignCryptoMaterial(client *kubernetes.Clientset, conf *hlfv1alpha1.Fa
 	if err != nil {
 		return nil, nil, nil, err
 	}
+	log.Infof("Enroll request: %+v", enrollRequest)
 	tlsCert, tlsKey, tlsRootCert, err := certs.EnrollUser(enrollRequest)
 	if err != nil {
 		return nil, nil, nil, err
@@ -1411,7 +1412,8 @@ func GetOrdererState(conf *action.Configuration, config *rest.Config, releaseNam
 	objects := utils.ParseK8sYaml([]byte(rel.Manifest))
 	for _, object := range objects {
 		kind := object.GetObjectKind().GroupVersionKind().Kind
-		if kind == "Deployment" {
+		switch kind {
+		case "Deployment":
 			depSpec := object.(*appsv1.Deployment)
 			dep, err := clientSet.AppsV1().Deployments(ns).Get(ctx, depSpec.Name, v1.GetOptions{})
 			if err != nil {
@@ -1448,18 +1450,19 @@ func GetOrdererState(conf *action.Configuration, config *rest.Config, releaseNam
 					r.Status = hlfv1alpha1.PendingStatus
 				}
 			}
-		} else if kind == "Service" {
+		case "Service":
 			svcSpec := object.(*corev1.Service)
 			svc, err := clientSet.CoreV1().Services(ns).Get(ctx, svcSpec.Name, v1.GetOptions{})
 			if err != nil {
 				return nil, err
 			}
 			for _, port := range svc.Spec.Ports {
-				if port.Name == "grpc" {
+				switch port.Name {
+				case "grpc":
 					r.NodePort = int(port.NodePort)
-				} else if port.Name == "admin" {
+				case "admin":
 					r.AdminPort = int(port.NodePort)
-				} else if port.Name == "operations" {
+				case "operations":
 					r.OperationsPort = int(port.NodePort)
 				}
 			}
@@ -1475,16 +1478,14 @@ func getEnrollRequestForFabricCA(client *kubernetes.Clientset, enrollment *hlfv1
 	}
 	tlsCAUrl := fmt.Sprintf("https://%s:%d", enrollment.Cahost, enrollment.Caport)
 	return certs.EnrollUserRequest{
-		Hosts:      []string{},
-		CN:         "",
-		Profile:    profile,
-		Attributes: nil,
-		User:       enrollment.Enrollid,
-		Secret:     enrollment.Enrollsecret,
-		URL:        tlsCAUrl,
-		Name:       enrollment.Caname,
-		MSPID:      spec.MspID,
-		TLSCert:    string(cacert),
+		Hosts:   []string{},
+		CN:      "",
+		User:    enrollment.Enrollid,
+		Secret:  enrollment.Enrollsecret,
+		URL:     tlsCAUrl,
+		Name:    enrollment.Caname,
+		MSPID:   spec.MspID,
+		TLSCert: string(cacert),
 	}, nil
 }
 
@@ -1510,7 +1511,7 @@ func getEnrollRequestForFabricCATLS(client *kubernetes.Clientset, enrollment *hl
 	}
 	return certs.EnrollUserRequest{
 		Hosts:      hosts,
-		CN:         "",
+		CN:         enrollment.Enrollid,
 		Profile:    profile,
 		Attributes: nil,
 		User:       enrollment.Enrollid,

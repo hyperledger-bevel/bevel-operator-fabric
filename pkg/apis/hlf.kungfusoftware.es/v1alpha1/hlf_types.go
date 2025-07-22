@@ -1195,13 +1195,13 @@ type FabricCAIdentityAttrs struct {
 	DelegateRoles string `json:"hf.Registrar.DelegateRoles"`
 	// +kubebuilder:default:="*"
 	Attributes string `json:"hf.Registrar.Attributes"`
-	// +kubebuilder:default:=true
+	// +kubebuilder:default:=false
 	Revoker bool `json:"hf.Revoker"`
-	// +kubebuilder:default:=true
+	// +kubebuilder:default:=false
 	IntermediateCA bool `json:"hf.IntermediateCA"`
-	// +kubebuilder:default:=true
+	// +kubebuilder:default:=false
 	GenCRL bool `json:"hf.GenCRL"`
-	// +kubebuilder:default:=true
+	// +kubebuilder:default:=false
 	AffiliationMgr bool `json:"hf.AffiliationMgr"`
 }
 type FabricCACRL struct {

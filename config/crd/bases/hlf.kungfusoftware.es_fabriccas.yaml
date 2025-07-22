@@ -647,13 +647,13 @@ spec:
                             attrs:
                               properties:
                                 hf.AffiliationMgr:
-                                  default: true
+                                  default: false
                                   type: boolean
                                 hf.GenCRL:
-                                  default: true
+                                  default: false
                                   type: boolean
                                 hf.IntermediateCA:
-                                  default: true
+                                  default: false
                                   type: boolean
                                 hf.Registrar.Attributes:
                                   default: '*'
@@ -665,7 +665,7 @@ spec:
                                   default: '*'
                                   type: string
                                 hf.Revoker:
-                                  default: true
+                                  default: false
                                   type: boolean
                               required:
                               - hf.AffiliationMgr
@@ -1343,13 +1343,13 @@ spec:
                             attrs:
                               properties:
                                 hf.AffiliationMgr:
-                                  default: true
+                                  default: false
                                   type: boolean
                                 hf.GenCRL:
-                                  default: true
+                                  default: false
                                   type: boolean
                                 hf.IntermediateCA:
-                                  default: true
+                                  default: false
                                   type: boolean
                                 hf.Registrar.Attributes:
                                   default: '*'
@@ -1361,7 +1361,7 @@ spec:
                                   default: '*'
                                   type: string
                                 hf.Revoker:
-                                  default: true
+                                  default: false
                                   type: boolean
                               required:
                               - hf.AffiliationMgr

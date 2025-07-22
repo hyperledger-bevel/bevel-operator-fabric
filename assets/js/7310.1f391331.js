@@ -1,1 +1,0 @@
-"use strict";(self.webpackChunkwebsite_docs=self.webpackChunkwebsite_docs||[]).push([[7310],{7310:(t,e,c)=>{function s(t,e){return t.documentsStore.get(t.data.docs,e)}function n(t){return t.documentsStore.count(t.data.docs)}c.r(e),c.d(e,{count:()=>n,getByID:()=>s})}}]);

@@ -9,13 +9,12 @@
     "swizzle": "docusaurus swizzle",
     "deploy": "docusaurus deploy",
     "serve": "docusaurus serve",
-    "postinstall": "patch-package",
     "clear": "docusaurus clear"
   },
   "dependencies": {
     "@docusaurus/core": "3.8.1",
     "@docusaurus/preset-classic": "3.8.1",
-    "@mdx-js/react": "^3.1.0",
+    "@mdx-js/react": "3.1.0",
     "@orama/plugin-docusaurus-v3": "^3.1.11",
     "clsx": "^2.1.1",
     "lucide-react": "^0.525.0",
@@ -34,9 +33,5 @@
       "last 1 firefox version",
       "last 1 safari version"
     ]
-  },
-  "devDependencies": {
-    "patch-package": "^8.0.0",
-    "postinstall-postinstall": "^2.1.0"
   }
 }

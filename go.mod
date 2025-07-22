@@ -15,6 +15,8 @@ require (
 	github.com/go-logr/logr v1.4.2
 	github.com/go-sql-driver/mysql v1.8.1
 	github.com/gogo/protobuf v1.3.2
+	golang.org/x/oauth2 v0.27.0
+	github.com/consensys/gnark-crypto v0.12.1
 	github.com/golang/protobuf v1.5.4
 	github.com/gorilla/handlers v1.5.1
 	github.com/gorilla/mux v1.8.0

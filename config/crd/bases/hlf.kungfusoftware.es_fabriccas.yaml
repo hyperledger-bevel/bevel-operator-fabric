@@ -1048,6 +1048,9 @@ spec:
                 default: {}
                 nullable: true
                 type: object
+              replicas:
+                default: 1
+                type: integer
               resources:
                 properties:
                   claims:
@@ -1555,6 +1558,7 @@ spec:
             - hosts
             - image
             - metrics
+            - replicas
             - resources
             - rootCA
             - service

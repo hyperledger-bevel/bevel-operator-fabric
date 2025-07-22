@@ -13,13 +13,14 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"sort"
+
 	"github.com/go-logr/logr"
 	"github.com/kfsoftware/hlf-operator/controllers/hlfmetrics"
 	"github.com/kfsoftware/hlf-operator/pkg/status"
 	"helm.sh/helm/v3/pkg/cli"
 	"helm.sh/helm/v3/pkg/release"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
-	"sort"
 
 	"math/big"
 	"net"
@@ -642,7 +643,12 @@ func GetConfig(conf *hlfv1alpha1.FabricCA, client *kubernetes.Clientset, chartNa
 			Hosts:       spec.Traefik.Hosts,
 		}
 	}
+	replicas := 1
+	if spec.Replicas != nil {
+		replicas = *spec.Replicas
+	}
 	var c = FabricCAChart{
+		Replicas:         replicas,
 		PodLabels:        spec.PodLabels,
 		PodAnnotations:   spec.PodAnnotations,
 		ImagePullSecrets: spec.ImagePullSecrets,
@@ -761,7 +767,11 @@ func GetCAState(clientSet *kubernetes.Clientset, ca *hlfv1alpha1.FabricCA, relea
 			}
 		}
 	} else {
-		if dep.Status.ReadyReplicas == *dep.Spec.Replicas {
+		replicas := 1
+		if ca.Spec.Replicas != nil {
+			replicas = *ca.Spec.Replicas
+		}
+		if dep.Status.ReadyReplicas == int32(replicas) {
 			r.Status = hlfv1alpha1.RunningStatus
 		} else {
 			r.Status = hlfv1alpha1.PendingStatus

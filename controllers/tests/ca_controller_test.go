@@ -5,13 +5,14 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"strconv"
+	"strings"
+	"text/template"
+
 	"github.com/kfsoftware/hlf-operator/controllers/ca"
 	operatorv1alpha1 "github.com/kfsoftware/hlf-operator/pkg/client/clientset/versioned"
 	log "github.com/sirupsen/logrus"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"strconv"
-	"strings"
-	"text/template"
 
 	"github.com/Masterminds/sprig"
 	"github.com/hyperledger/fabric-sdk-go/pkg/client/resmgmt"
@@ -219,6 +220,7 @@ func randomFabricCA(releaseName string, namespace string) *hlfv1alpha1.FabricCA 
 	Expect(err).ToNot(HaveOccurred())
 	k8sIP, err := utils.GetPublicIPKubernetes(ClientSet)
 	Expect(err).ToNot(HaveOccurred())
+	replicas := 1
 
 	fabricCa := &hlfv1alpha1.FabricCA{
 		TypeMeta: NewTypeMeta("FabricCA"),
@@ -227,7 +229,7 @@ func randomFabricCA(releaseName string, namespace string) *hlfv1alpha1.FabricCA 
 			Namespace: namespace,
 		},
 		Spec: hlfv1alpha1.FabricCASpec{
-
+			Replicas: &replicas,
 			Istio: &hlfv1alpha1.FabricIstio{
 				Hosts: []string{},
 			},
@@ -808,7 +810,7 @@ var _ = Describe("Fabric Controllers", func() {
 		Expect(err).ToNot(HaveOccurred())
 		k8sIP, err := utils.GetPublicIPKubernetes(ClientSet)
 		Expect(err).ToNot(HaveOccurred())
-
+		replicas := 1
 		fabricCa := &hlfv1alpha1.FabricCA{
 			TypeMeta: NewTypeMeta("FabricCA"),
 			ObjectMeta: v1.ObjectMeta{
@@ -816,6 +818,7 @@ var _ = Describe("Fabric Controllers", func() {
 				Namespace: FabricNamespace,
 			},
 			Spec: hlfv1alpha1.FabricCASpec{
+				Replicas: &replicas,
 				Istio: &hlfv1alpha1.FabricIstio{
 					Hosts: []string{},
 				},

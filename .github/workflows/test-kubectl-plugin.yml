@@ -173,7 +173,7 @@ jobs:
           export CA_IMAGE=hyperledger/fabric-ca
           export CA_VERSION=1.5.13
 
-          kubectl hlf ca create --image=$CA_IMAGE --version=$CA_VERSION --storage-class=standard --capacity=2Gi --name=org1-ca \
+          kubectl hlf ca create  --credential-store=kubernetes --image=$CA_IMAGE --version=$CA_VERSION --storage-class=standard --capacity=2Gi --name=org1-ca \
               --enroll-id=enroll --hosts=org1-ca.localho.st --enroll-pw=enrollpw
           kubectl wait --timeout=240s --for=condition=Running fabriccas.hlf.kungfusoftware.es --all    
 
@@ -182,7 +182,7 @@ jobs:
           --enroll-id enroll --enroll-secret=enrollpw --mspid Org1MSP
 
 
-          kubectl hlf peer create --statedb=couchdb --image=$PEER_IMAGE --version=$PEER_VERSION \
+          kubectl hlf peer create  --credential-store=kubernetes --statedb=couchdb --image=$PEER_IMAGE --version=$PEER_VERSION \
                   --storage-class=standard --enroll-id=peer --mspid=Org1MSP \
                   --enroll-pw=peerpw --hosts=peer0-org1.localho.st --capacity=5Gi --name=org1-peer0 --ca-name=org1-ca.default
           kubectl wait --timeout=240s --for=condition=Running fabricpeers.hlf.kungfusoftware.es --all
@@ -194,14 +194,14 @@ jobs:
           export CA_IMAGE=hyperledger/fabric-ca
           export CA_VERSION=1.5.13
 
-          kubectl hlf ca create --image=$CA_IMAGE --version=$CA_VERSION --storage-class=standard --capacity=2Gi --name=ord-ca \
+          kubectl hlf ca create --credential-store=kubernetes --image=$CA_IMAGE --version=$CA_VERSION --storage-class=standard --capacity=2Gi --name=ord-ca \
               --enroll-id=enroll --enroll-pw=enrollpw --hosts=ord-ca.localho.st
 
           kubectl wait --timeout=240s --for=condition=Running fabriccas.hlf.kungfusoftware.es --all
           kubectl hlf ca register --name=ord-ca --user=orderer --secret=ordererpw \
               --type=orderer --enroll-id enroll --enroll-secret=enrollpw --mspid=OrdererMSP
 
-          kubectl hlf ordnode create --image=$ORDERER_IMAGE --version=$ORDERER_VERSION \
+          kubectl hlf ordnode create --credential-store=kubernetes --image=$ORDERER_IMAGE --version=$ORDERER_VERSION \
               --storage-class=standard --enroll-id=orderer --mspid=OrdererMSP --hosts=orderer0-ord.localho.st --admin-hosts=admin-orderer0-ord.localho.st \
               --enroll-pw=ordererpw --capacity=2Gi --name=ord-node1 --ca-name=ord-ca.default
           kubectl wait --timeout=240s --for=condition=Running fabricorderernodes.hlf.kungfusoftware.es --all

@@ -19,6 +19,7 @@ require (
 	github.com/gorilla/handlers v1.5.1
 	github.com/gorilla/mux v1.8.0
 	github.com/grantae/certinfo v0.0.0-20170412194111-59d56a35515b
+	github.com/hashicorp/vault-client-go v0.4.3
 	github.com/hyperledger/fabric v2.1.1+incompatible
 	github.com/hyperledger/fabric-config v0.2.1
 	github.com/hyperledger/fabric-lib-go v1.0.0
@@ -31,7 +32,7 @@ require (
 	github.com/lithammer/shortuuid/v3 v3.0.4
 	github.com/mattn/go-sqlite3 v1.14.22
 	github.com/miekg/pkcs11 v1.1.1
-	github.com/mitchellh/mapstructure v1.4.1
+	github.com/mitchellh/mapstructure v1.5.0
 	github.com/olekukonko/tablewriter v0.0.5
 	github.com/onsi/ginkgo v1.14.0
 	github.com/onsi/gomega v1.35.1
@@ -64,15 +65,23 @@ require (
 	dario.cat/mergo v1.0.1 // indirect
 	filippo.io/edwards25519 v1.1.0 // indirect
 	github.com/blang/semver/v4 v4.0.0 // indirect
+	github.com/consensys/gnark-crypto v0.6.0 // indirect
 	github.com/containerd/containerd v1.7.27 // indirect
 	github.com/containerd/errdefs v0.3.0 // indirect
 	github.com/containerd/platforms v0.2.1 // indirect
 	github.com/distribution/reference v0.6.0 // indirect
 	github.com/fxamacker/cbor/v2 v2.7.0 // indirect
 	github.com/golang/snappy v0.0.4 // indirect
+	github.com/hashicorp/go-cleanhttp v0.5.2 // indirect
+	github.com/hashicorp/go-retryablehttp v0.7.7 // indirect
+	github.com/hashicorp/go-rootcerts v1.0.2 // indirect
+	github.com/hashicorp/go-secure-stdlib/strutil v0.1.2 // indirect
+	github.com/mitchellh/go-homedir v1.1.0 // indirect
+	github.com/ryanuber/go-glob v1.0.0 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	golang.org/x/mod v0.21.0 // indirect
 	golang.org/x/net v0.38.0 // indirect
+	golang.org/x/oauth2 v0.27.0 // indirect
 	golang.org/x/text v0.23.0 // indirect
 	golang.org/x/tools v0.26.0 // indirect
 	gopkg.in/evanphx/json-patch.v4 v4.12.0 // indirect
@@ -95,7 +104,6 @@ require (
 	github.com/bugsnag/panicwrap v1.2.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/chai2010/gettext-go v1.0.2 // indirect
-	github.com/consensys/gnark-crypto v0.6.0 // indirect
 	github.com/containerd/log v0.1.0 // indirect
 	github.com/cyphar/filepath-securejoin v0.3.6 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
@@ -201,7 +209,6 @@ require (
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.27.0 // indirect
 	golang.org/x/exp v0.0.0-20240719175910-8a7402abbf56 // indirect
-	golang.org/x/oauth2 v0.23.0 // indirect
 	golang.org/x/sync v0.12.0 // indirect
 	golang.org/x/sys v0.31.0 // indirect
 	golang.org/x/term v0.30.0 // indirect
@@ -225,10 +232,6 @@ require (
 	sigs.k8s.io/kustomize/kyaml v0.18.1 // indirect
 	sigs.k8s.io/structured-merge-diff/v4 v4.4.2
 )
-
-//	github.com/Azure/go-autorest => github.com/Azure/go-autorest v14.2.0+incompatible
-//	github.com/docker/docker => github.com/docker/docker v20.10.17+incompatible
-//replace github.com/go-kit/kit => github.com/go-kit/kit v0.8.0
 
 replace (
 	github.com/hyperledger/fabric-config => github.com/kfsoftware/fabric-config v0.0.0-20240819184344-a0b16ca530c2

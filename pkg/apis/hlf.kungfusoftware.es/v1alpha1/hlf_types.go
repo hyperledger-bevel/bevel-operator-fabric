@@ -265,7 +265,18 @@ type FabricPeerSpec struct {
 	// +optional
 	// +kubebuilder:validation:Default={}
 	Env []corev1.EnvVar `json:"env"`
+
+	// +kubebuilder:default:="kubernetes"
+	// +kubebuilder:validation:Enum=kubernetes;vault
+	// +optional
+	CredentialStore CredentialStore `json:"credentialStore,omitempty"`
 }
+
+type VaultComponent struct {
+	Request VaultPKICertificateRequest `json:"request"`
+	Vault   VaultSpecConf              `json:"vault"`
+}
+
 type FabricPeerResources struct {
 	Peer      *corev1.ResourceRequirements `json:"peer"`
 	CouchDB   *corev1.ResourceRequirements `json:"couchdb"`
@@ -399,20 +410,32 @@ type Catls struct {
 	SecretRef *SecretRefNSKey `json:"secretRef"`
 }
 type Component struct {
-	// +kubebuilder:validation:MinLength=1
+	// +optional
+	// +nullable
 	Cahost string `json:"cahost"`
-	// +kubebuilder:validation:MinLength=1
+	// +optional
+	// +nullable
 	Caname string `json:"caname"`
-	Caport int    `json:"caport"`
-	Catls  Catls  `json:"catls"`
-	// +kubebuilder:validation:MinLength=1
+	// +optional
+	// +nullable
+	Caport int `json:"caport"`
+	// +optional
+	// +nullable
+	Catls *Catls `json:"catls"`
+	// +optional
+	// +nullable
 	Enrollid string `json:"enrollid"`
-	// +kubebuilder:validation:MinLength=1
+	// +optional
+	// +nullable
 	Enrollsecret string `json:"enrollsecret"`
 
 	// +optional
 	// +nullable
 	External *ExternalCertificate `json:"external"`
+
+	// +optional
+	// +nullable
+	Vault *VaultComponent `json:"vault"`
 }
 type ExternalCertificate struct {
 	SecretName         string `json:"secretName"`
@@ -432,27 +455,49 @@ type Csr struct {
 	// +optional
 	CN string `json:"cn"`
 }
-type TLS struct {
-	Cahost string `json:"cahost"`
-	Caname string `json:"caname"`
-	Caport int    `json:"caport"`
-	Catls  Catls  `json:"catls"`
+type TLSComponent struct {
 	// +optional
-	Csr          Csr    `json:"csr"`
-	Enrollid     string `json:"enrollid"`
+	// +nullable
+	Cahost string `json:"cahost"`
+	// +optional
+	// +nullable
+	Caname string `json:"caname"`
+	// +optional
+	// +nullable
+	Caport int `json:"caport"`
+	// +optional
+	// +nullable
+	Catls *Catls `json:"catls"`
+	// +optional
+	// +nullable
+	Csr Csr `json:"csr"`
+	// +optional
+	// +nullable
+	Enrollid string `json:"enrollid"`
+	// +optional
+	// +nullable
 	Enrollsecret string `json:"enrollsecret"`
+
+	// +optional
+	// +nullable
+	Vault *VaultComponent `json:"vault"`
 
 	// +optional
 	// +nullable
 	External *ExternalCertificate `json:"external"`
 }
+
 type Enrollment struct {
-	Component Component `json:"component"`
-	TLS       TLS       `json:"tls"`
+	Component Component    `json:"component"`
+	TLS       TLSComponent `json:"tls"`
 }
+
 type OrdererEnrollment struct {
-	Component Component `json:"component"`
-	TLS       TLS       `json:"tls"`
+	// +optional
+	// +nullable
+	Component *Component `json:"component"`
+
+	TLS TLSComponent `json:"tls"`
 }
 type Secret struct {
 	Enrollment Enrollment `json:"enrollment"`
@@ -649,6 +694,16 @@ type FabricOrdererNodeSpec struct {
 	// +optional
 	// +kubebuilder:validation:Default={}
 	Env []corev1.EnvVar `json:"env"`
+
+	// +kubebuilder:default:="kubernetes"
+	// +kubebuilder:validation:Enum=kubernetes;vault
+	// +optional
+	CredentialStore CredentialStore `json:"credentialStore,omitempty"`
+}
+
+type FabricOrdererVaultSpec struct {
+	Request VaultPKICertificateRequest `json:"request"`
+	Vault   VaultSpecConf              `json:"vault"`
 }
 
 type OrdererSystemChannel struct {
@@ -725,6 +780,13 @@ type FabricCADatabase struct {
 	Datasource string `json:"datasource"`
 }
 
+type CredentialStore string
+
+const (
+	CredentialStoreKubernetes = "kubernetes"
+	CredentialStoreVault      = "vault"
+)
+
 // FabricCASpec defines the desired state of FabricCA
 type FabricCASpec struct {
 	// +nullable
@@ -796,6 +858,16 @@ type FabricCASpec struct {
 	Storage   Storage                     `json:"storage"`
 	Metrics   FabricCAMetrics             `json:"metrics"`
 
+	// +kubebuilder:default:="kubernetes"
+	// +kubebuilder:validation:Enum=kubernetes;vault
+	// +optional
+	CredentialStore CredentialStore `json:"credentialStore,omitempty"`
+
+	// +optional
+	// +kubebuilder:validation:Optional
+	// +nullable
+	Vault *FabricCAVaultSpec `json:"vault"`
+
 	// +nullable
 	// +kubebuilder:validation:Optional
 	// +optional
@@ -806,6 +878,109 @@ type FabricCASpec struct {
 	// +optional
 	// +nullable
 	Replicas *int `json:"replicas"`
+}
+
+type FabricCAVaultSpec struct {
+	Request VaultPKICertificateRequest `json:"request"`
+	Vault   VaultSpecConf              `json:"vault"`
+}
+
+type VaultBackend string
+
+const (
+	VaultBackendKV  VaultBackend = "kv"
+	VaultBackendPKI VaultBackend = "pki"
+)
+
+// VaultPKICertificateRequest defines the configuration for requesting certificates from Vault's PKI backend
+type VaultPKICertificateRequest struct {
+
+	// PKI is the PKI backend to use for certificate generation
+	// +kubebuilder:validation:Required
+	PKI string `json:"pki"`
+
+	// Role is the PKI role to use for certificate generation
+	// +kubebuilder:validation:Required
+	Role string `json:"role"`
+
+	// TTL is the requested time-to-live of the certificate
+	// +optional
+	// +kubebuilder:default:="8760h"
+	TTL string `json:"ttl,omitempty"`
+
+	// UserIDs are optional user identifiers that can be included in the certificate
+	// +optional
+	// +nullable
+	// +kubebuilder:default:={}
+	UserIDs []string `json:"userIDs,omitempty"`
+}
+
+type VaultSpecConf struct {
+	// URL of the Vault server
+	URL string `json:"url"`
+	// Token for direct authentication to Vault
+	// +optional
+	// +nullable
+	TokenSecretRef *VaultSecretRef `json:"tokenSecretRef,omitempty"`
+	// Role for Kubernetes auth method
+	// +optional
+	// +nullable
+	Role string `json:"role"`
+
+	// Path in Vault where secrets are stored
+	// +optional
+	// +nullable
+	Path string `json:"path,omitempty"`
+
+	// Backend type in Vault (e.g., "kv", "pki")
+	// +kubebuilder:default:="kv"
+	// +optional
+	Backend VaultBackend `json:"backend,omitempty"`
+
+	// Version of KV backend (1 or 2)
+	// +kubebuilder:default:=2
+	// +optional
+	KVVersion int `json:"kvVersion,omitempty"`
+
+	// Path to the secret in Vault
+	// +optional
+	// +nullable
+	SecretIdSecretRef *VaultSecretRef `json:"secretIdSecretRef,omitempty"`
+	// Kubernetes service account token path for auth
+	// +optional
+	// +nullable
+	ServiceAccountTokenPath string `json:"serviceAccountTokenPath"`
+	// Kubernetes auth mount path
+	// +kubebuilder:default:="kubernetes"
+	// +optional
+	// +nullable
+	AuthPath string `json:"authPath"`
+	// Server Certificate for TLS authentication
+	// +optional
+	// +nullable
+	ServerCert string `json:"serverCert"`
+	// Server Name for TLS authentication
+	// +optional
+	ServerName string `json:"serverName"`
+
+	// Client certificate for TLS authentication
+	// +optional
+	ClientCert string `json:"clientCert"`
+	// Client key for TLS authentication
+	// +optional
+	ClientKeySecretRef *VaultSecretRef `json:"clientKey"`
+	// CA certificate for TLS verification
+	// +optional
+	CACert string `json:"caCert"`
+	// Skip TLS verification
+	// +kubebuilder:default:=false
+	TLSSkipVerify bool `json:"tlsSkipVerify"`
+	// Timeout for Vault operations
+	// +kubebuilder:default:="30s"
+	Timeout string `json:"timeout"`
+	// Maximum number of retries for Vault operations
+	// +kubebuilder:default:=2
+	MaxRetries int `json:"maxRetries"`
 }
 
 type FabricCATLSConf struct {
@@ -934,6 +1109,12 @@ type SecretRef struct {
 	// +kubebuilder:validation:Optional
 	Name string `json:"name"`
 }
+
+type VaultSecretRef struct {
+	Name      string `json:"name"`
+	Namespace string `json:"namespace"`
+	Key       string `json:"key"`
+}
 type SecretRefNSKey struct {
 	Name      string `json:"name"`
 	Namespace string `json:"namespace"`
@@ -1014,13 +1195,13 @@ type FabricCAIdentityAttrs struct {
 	DelegateRoles string `json:"hf.Registrar.DelegateRoles"`
 	// +kubebuilder:default:="*"
 	Attributes string `json:"hf.Registrar.Attributes"`
-	// +kubebuilder:default:=true
+	// +kubebuilder:default:=false
 	Revoker bool `json:"hf.Revoker"`
-	// +kubebuilder:default:=true
+	// +kubebuilder:default:=false
 	IntermediateCA bool `json:"hf.IntermediateCA"`
-	// +kubebuilder:default:=true
+	// +kubebuilder:default:=false
 	GenCRL bool `json:"hf.GenCRL"`
-	// +kubebuilder:default:=true
+	// +kubebuilder:default:=false
 	AffiliationMgr bool `json:"hf.AffiliationMgr"`
 }
 type FabricCACRL struct {
@@ -1188,8 +1369,6 @@ type FabricOrdererNodeList struct {
 // +kubebuilder:resource:scope=Namespaced,shortName=ca,singular=ca
 // +kubebuilder:printcolumn:name="State",type="string",JSONPath=".status.status"
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
-// +kubebuilder:object:root=true
-// +kubebuilder:subresource:status
 // +k8s:openapi-gen=true
 
 // FabricCA is the Schema for the hlfs API
@@ -1802,7 +1981,7 @@ type FabricChaincodeSpec struct {
 	// +nullable
 	// +kubebuilder:validation:Optional
 	// +optional
-	Credentials *TLS `json:"credentials"`
+	Credentials *TLSComponent `json:"credentials"`
 
 	// +kubebuilder:validation:Default=1
 	Replicas int `json:"replicas"`
@@ -2240,18 +2419,25 @@ type FabricIdentityList struct {
 
 // FabricIdentitySpec defines the desired state of FabricIdentity
 type FabricIdentitySpec struct {
-	// +kubebuilder:validation:MinLength=1
+	// +optional
+	// +nullable
 	Cahost string `json:"cahost"`
-	// +kubebuilder:validation:MinLength=1
+	// +optional
+	// +nullable
 	Caname string `json:"caname"`
-	Caport int    `json:"caport"`
-	Catls  Catls  `json:"catls"`
-	// +kubebuilder:validation:MinLength=1
+	// +optional
+	// +nullable
+	Caport int `json:"caport"`
+	// +optional
+	// +nullable
+	Catls *Catls `json:"catls"`
+	// +optional
+	// +nullable
 	Enrollid string `json:"enrollid"`
-	// +kubebuilder:validation:MinLength=1
+	// +optional
+	// +nullable
 	Enrollsecret string `json:"enrollsecret"`
-	// +kubebuilder:validation:MinLength=1
-	MSPID string `json:"mspid"`
+	MSPID        string `json:"mspid"`
 	// +nullable
 	// +optional
 	// +kubebuilder:validation:Optional
@@ -2263,6 +2449,15 @@ type FabricIdentitySpec struct {
 	// +optional
 	// +nullable
 	UpdateCertificateTime *metav1.Time `json:"updateCertificateTime"`
+
+	// +optional
+	// +nullable
+	Vault *VaultComponent `json:"vault"`
+
+	// +kubebuilder:default:="kubernetes"
+	// +kubebuilder:validation:Enum=kubernetes;vault
+	// +optional
+	CredentialStore CredentialStore `json:"credentialStore,omitempty"`
 }
 
 type FabricIdentityAttributeRequest struct {
@@ -2709,10 +2904,22 @@ type CARef struct {
 type FabricMainChannelPeerOrganization struct {
 	// MSP ID of the organization
 	MSPID string `json:"mspID"`
+
+	// +optional
 	// FabricCA Name of the organization
 	CAName string `json:"caName"`
+
+	// +optional
 	// FabricCA Namespace of the organization
 	CANamespace string `json:"caNamespace"`
+
+	// +optional
+	// TLS Root certificate authority of the orderer organization
+	TLSCACert string `json:"tlsCACert"`
+
+	// +optional
+	// Root certificate authority for signing
+	SignCACert string `json:"signCACert"`
 }
 
 type FabricMainChannelOrdererOrganization struct {

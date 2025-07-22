@@ -229,7 +229,8 @@ func randomFabricCA(releaseName string, namespace string) *hlfv1alpha1.FabricCA 
 			Namespace: namespace,
 		},
 		Spec: hlfv1alpha1.FabricCASpec{
-			Replicas: &replicas,
+			CredentialStore: hlfv1alpha1.CredentialStoreKubernetes,
+			Replicas:        &replicas,
 			Istio: &hlfv1alpha1.FabricIstio{
 				Hosts: []string{},
 			},
@@ -638,6 +639,7 @@ func createOrdererNode(releaseName string, namespace string, params createOrdere
 			Namespace: namespace,
 		},
 		Spec: hlfv1alpha1.FabricOrdererNodeSpec{
+			CredentialStore:             hlfv1alpha1.CredentialStoreKubernetes,
 			Tolerations:                 nil,
 			GRPCProxy:                   nil,
 			Affinity:                    nil,
@@ -669,17 +671,17 @@ func createOrdererNode(releaseName string, namespace string, params createOrdere
 						Cahost: caHost,
 						Caname: caName,
 						Caport: caPort,
-						Catls: hlfv1alpha1.Catls{
+						Catls: &hlfv1alpha1.Catls{
 							Cacert: base64.StdEncoding.EncodeToString([]byte(caTLSCert)),
 						},
 						Enrollid:     enrollID,
 						Enrollsecret: enrollSecret,
 					},
-					TLS: hlfv1alpha1.TLS{
+					TLS: hlfv1alpha1.TLSComponent{
 						Cahost: caHost,
 						Caname: caName,
 						Caport: caPort,
-						Catls: hlfv1alpha1.Catls{
+						Catls: &hlfv1alpha1.Catls{
 							Cacert: base64.StdEncoding.EncodeToString([]byte(caTLSCert)),
 						},
 						Enrollid:     enrollID,
@@ -818,7 +820,8 @@ var _ = Describe("Fabric Controllers", func() {
 				Namespace: FabricNamespace,
 			},
 			Spec: hlfv1alpha1.FabricCASpec{
-				Replicas: &replicas,
+				CredentialStore: hlfv1alpha1.CredentialStoreKubernetes,
+				Replicas:        &replicas,
 				Istio: &hlfv1alpha1.FabricIstio{
 					Hosts: []string{},
 				},

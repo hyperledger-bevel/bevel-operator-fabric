@@ -5,4 +5,4 @@ kind: Kustomization
 images:
 - name: controller
   newName: kfsoftware/hlf-operator
-  newTag: dev-1728918609
+  newTag: dev-1746192867

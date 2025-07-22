@@ -647,13 +647,13 @@ spec:
                             attrs:
                               properties:
                                 hf.AffiliationMgr:
-                                  default: true
+                                  default: false
                                   type: boolean
                                 hf.GenCRL:
-                                  default: true
+                                  default: false
                                   type: boolean
                                 hf.IntermediateCA:
-                                  default: true
+                                  default: false
                                   type: boolean
                                 hf.Registrar.Attributes:
                                   default: '*'
@@ -665,7 +665,7 @@ spec:
                                   default: '*'
                                   type: string
                                 hf.Revoker:
-                                  default: true
+                                  default: false
                                   type: boolean
                               required:
                               - hf.AffiliationMgr
@@ -826,6 +826,12 @@ spec:
                 - enabled
                 - origins
                 type: object
+              credentialStore:
+                default: kubernetes
+                enum:
+                - kubernetes
+                - vault
+                type: string
               db:
                 properties:
                   datasource:
@@ -1050,6 +1056,7 @@ spec:
                 type: object
               replicas:
                 default: 1
+                nullable: true
                 type: integer
               resources:
                 properties:
@@ -1336,13 +1343,13 @@ spec:
                             attrs:
                               properties:
                                 hf.AffiliationMgr:
-                                  default: true
+                                  default: false
                                   type: boolean
                                 hf.GenCRL:
-                                  default: true
+                                  default: false
                                   type: boolean
                                 hf.IntermediateCA:
-                                  default: true
+                                  default: false
                                   type: boolean
                                 hf.Registrar.Attributes:
                                   default: '*'
@@ -1354,7 +1361,7 @@ spec:
                                   default: '*'
                                   type: string
                                 hf.Revoker:
-                                  default: true
+                                  default: false
                                   type: boolean
                               required:
                               - hf.AffiliationMgr
@@ -1546,6 +1553,120 @@ spec:
                 required:
                 - entryPoints
                 type: object
+              vault:
+                nullable: true
+                properties:
+                  request:
+                    properties:
+                      pki:
+                        type: string
+                      role:
+                        type: string
+                      ttl:
+                        default: 8760h
+                        type: string
+                      userIDs:
+                        default: []
+                        items:
+                          type: string
+                        nullable: true
+                        type: array
+                    required:
+                    - pki
+                    - role
+                    type: object
+                  vault:
+                    properties:
+                      authPath:
+                        default: kubernetes
+                        nullable: true
+                        type: string
+                      backend:
+                        default: kv
+                        type: string
+                      caCert:
+                        type: string
+                      clientCert:
+                        type: string
+                      clientKey:
+                        properties:
+                          key:
+                            type: string
+                          name:
+                            type: string
+                          namespace:
+                            type: string
+                        required:
+                        - key
+                        - name
+                        - namespace
+                        type: object
+                      kvVersion:
+                        default: 2
+                        type: integer
+                      maxRetries:
+                        default: 2
+                        type: integer
+                      path:
+                        nullable: true
+                        type: string
+                      role:
+                        nullable: true
+                        type: string
+                      secretIdSecretRef:
+                        nullable: true
+                        properties:
+                          key:
+                            type: string
+                          name:
+                            type: string
+                          namespace:
+                            type: string
+                        required:
+                        - key
+                        - name
+                        - namespace
+                        type: object
+                      serverCert:
+                        nullable: true
+                        type: string
+                      serverName:
+                        type: string
+                      serviceAccountTokenPath:
+                        nullable: true
+                        type: string
+                      timeout:
+                        default: 30s
+                        type: string
+                      tlsSkipVerify:
+                        default: false
+                        type: boolean
+                      tokenSecretRef:
+                        nullable: true
+                        properties:
+                          key:
+                            type: string
+                          name:
+                            type: string
+                          namespace:
+                            type: string
+                        required:
+                        - key
+                        - name
+                        - namespace
+                        type: object
+                      url:
+                        type: string
+                    required:
+                    - maxRetries
+                    - timeout
+                    - tlsSkipVerify
+                    - url
+                    type: object
+                required:
+                - request
+                - vault
+                type: object
               version:
                 minLength: 1
                 type: string
@@ -1558,7 +1679,6 @@ spec:
             - hosts
             - image
             - metrics
-            - replicas
             - resources
             - rootCA
             - service

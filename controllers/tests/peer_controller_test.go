@@ -71,6 +71,7 @@ func createPeer(releaseName string, namespace string, params createPeerParams, c
 			Namespace: namespace,
 		},
 		Spec: hlfv1alpha1.FabricPeerSpec{
+			CredentialStore:       hlfv1alpha1.CredentialStoreKubernetes,
 			UpdateCertificateTime: nil,
 			ServiceMonitor:        nil,
 			HostAliases:           nil,
@@ -120,17 +121,17 @@ func createPeer(releaseName string, namespace string, params createPeerParams, c
 						Cahost: caHost,
 						Caname: caName,
 						Caport: caPort,
-						Catls: hlfv1alpha1.Catls{
+						Catls: &hlfv1alpha1.Catls{
 							Cacert: base64.StdEncoding.EncodeToString([]byte(caTLSCert)),
 						},
 						Enrollid:     peerEnrollID,
 						Enrollsecret: peerEnrollSecret,
 					},
-					TLS: hlfv1alpha1.TLS{
+					TLS: hlfv1alpha1.TLSComponent{
 						Cahost: caHost,
 						Caname: caName,
 						Caport: caPort,
-						Catls: hlfv1alpha1.Catls{
+						Catls: &hlfv1alpha1.Catls{
 							Cacert: base64.StdEncoding.EncodeToString([]byte(caTLSCert)),
 						},
 						Csr: hlfv1alpha1.Csr{

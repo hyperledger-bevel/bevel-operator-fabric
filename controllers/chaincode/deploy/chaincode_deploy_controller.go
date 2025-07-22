@@ -260,7 +260,6 @@ func (r FabricChaincodeDeployReconciler) getCryptoMaterial(ctx context.Context, 
 func (r *FabricChaincodeDeployReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	reqLogger := r.Log.WithValues("hlf", req.NamespacedName)
 	fabricChaincode := &hlfv1alpha1.FabricChaincode{}
-	//releaseName := req.Name
 
 	err := r.Get(ctx, req.NamespacedName, fabricChaincode)
 	if err != nil {

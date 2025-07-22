@@ -126,7 +126,7 @@ func GetConsoleState(conf *action.Configuration, config *rest.Config, releaseNam
 	return r, nil
 }
 
-const consoleFinalizer = "finalizer.console.hlf.kungfusoftware.es"
+const consoleFinalizer = "finalizer.operatorapi.hlf.kungfusoftware.es"
 
 // +kubebuilder:rbac:groups=hlf.kungfusoftware.es,resources=fabricpeers,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=hlf.kungfusoftware.es,resources=fabricpeers/status,verbs=get;update;patch

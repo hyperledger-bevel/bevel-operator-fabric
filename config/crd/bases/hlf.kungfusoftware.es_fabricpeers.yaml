@@ -532,6 +532,12 @@ spec:
                 - tag
                 - user
                 type: object
+              credentialStore:
+                default: kubernetes
+                enum:
+                - kubernetes
+                - vault
+                type: string
               deliveryClientaddressOverrides:
                 default: []
                 items:
@@ -1148,14 +1154,16 @@ spec:
                       component:
                         properties:
                           cahost:
-                            minLength: 1
+                            nullable: true
                             type: string
                           caname:
-                            minLength: 1
+                            nullable: true
                             type: string
                           caport:
+                            nullable: true
                             type: integer
                           catls:
+                            nullable: true
                             properties:
                               cacert:
                                 type: string
@@ -1177,10 +1185,10 @@ spec:
                             - cacert
                             type: object
                           enrollid:
-                            minLength: 1
+                            nullable: true
                             type: string
                           enrollsecret:
-                            minLength: 1
+                            nullable: true
                             type: string
                           external:
                             nullable: true
@@ -1202,23 +1210,134 @@ spec:
                             - secretName
                             - secretNamespace
                             type: object
-                        required:
-                        - cahost
-                        - caname
-                        - caport
-                        - catls
-                        - enrollid
-                        - enrollsecret
+                          vault:
+                            nullable: true
+                            properties:
+                              request:
+                                properties:
+                                  pki:
+                                    type: string
+                                  role:
+                                    type: string
+                                  ttl:
+                                    default: 8760h
+                                    type: string
+                                  userIDs:
+                                    default: []
+                                    items:
+                                      type: string
+                                    nullable: true
+                                    type: array
+                                required:
+                                - pki
+                                - role
+                                type: object
+                              vault:
+                                properties:
+                                  authPath:
+                                    default: kubernetes
+                                    nullable: true
+                                    type: string
+                                  backend:
+                                    default: kv
+                                    type: string
+                                  caCert:
+                                    type: string
+                                  clientCert:
+                                    type: string
+                                  clientKey:
+                                    properties:
+                                      key:
+                                        type: string
+                                      name:
+                                        type: string
+                                      namespace:
+                                        type: string
+                                    required:
+                                    - key
+                                    - name
+                                    - namespace
+                                    type: object
+                                  kvVersion:
+                                    default: 2
+                                    type: integer
+                                  maxRetries:
+                                    default: 2
+                                    type: integer
+                                  path:
+                                    nullable: true
+                                    type: string
+                                  role:
+                                    nullable: true
+                                    type: string
+                                  secretIdSecretRef:
+                                    nullable: true
+                                    properties:
+                                      key:
+                                        type: string
+                                      name:
+                                        type: string
+                                      namespace:
+                                        type: string
+                                    required:
+                                    - key
+                                    - name
+                                    - namespace
+                                    type: object
+                                  serverCert:
+                                    nullable: true
+                                    type: string
+                                  serverName:
+                                    type: string
+                                  serviceAccountTokenPath:
+                                    nullable: true
+                                    type: string
+                                  timeout:
+                                    default: 30s
+                                    type: string
+                                  tlsSkipVerify:
+                                    default: false
+                                    type: boolean
+                                  tokenSecretRef:
+                                    nullable: true
+                                    properties:
+                                      key:
+                                        type: string
+                                      name:
+                                        type: string
+                                      namespace:
+                                        type: string
+                                    required:
+                                    - key
+                                    - name
+                                    - namespace
+                                    type: object
+                                  url:
+                                    type: string
+                                required:
+                                - maxRetries
+                                - timeout
+                                - tlsSkipVerify
+                                - url
+                                type: object
+                            required:
+                            - request
+                            - vault
+                            type: object
                         type: object
                       tls:
                         properties:
                           cahost:
+                            nullable: true
                             type: string
                           caname:
+                            nullable: true
                             type: string
                           caport:
+                            nullable: true
                             type: integer
                           catls:
+                            nullable: true
                             properties:
                               cacert:
                                 type: string
@@ -1240,6 +1359,7 @@ spec:
                             - cacert
                             type: object
                           csr:
+                            nullable: true
                             properties:
                               cn:
                                 type: string
@@ -1249,8 +1369,10 @@ spec:
                                 type: array
                             type: object
                           enrollid:
+                            nullable: true
                             type: string
                           enrollsecret:
+                            nullable: true
                             type: string
                           external:
                             nullable: true
@@ -1272,13 +1394,120 @@ spec:
                             - secretName
                             - secretNamespace
                             type: object
-                        required:
-                        - cahost
-                        - caname
-                        - caport
-                        - catls
-                        - enrollid
-                        - enrollsecret
+                          vault:
+                            nullable: true
+                            properties:
+                              request:
+                                properties:
+                                  pki:
+                                    type: string
+                                  role:
+                                    type: string
+                                  ttl:
+                                    default: 8760h
+                                    type: string
+                                  userIDs:
+                                    default: []
+                                    items:
+                                      type: string
+                                    nullable: true
+                                    type: array
+                                required:
+                                - pki
+                                - role
+                                type: object
+                              vault:
+                                properties:
+                                  authPath:
+                                    default: kubernetes
+                                    nullable: true
+                                    type: string
+                                  backend:
+                                    default: kv
+                                    type: string
+                                  caCert:
+                                    type: string
+                                  clientCert:
+                                    type: string
+                                  clientKey:
+                                    properties:
+                                      key:
+                                        type: string
+                                      name:
+                                        type: string
+                                      namespace:
+                                        type: string
+                                    required:
+                                    - key
+                                    - name
+                                    - namespace
+                                    type: object
+                                  kvVersion:
+                                    default: 2
+                                    type: integer
+                                  maxRetries:
+                                    default: 2
+                                    type: integer
+                                  path:
+                                    nullable: true
+                                    type: string
+                                  role:
+                                    nullable: true
+                                    type: string
+                                  secretIdSecretRef:
+                                    nullable: true
+                                    properties:
+                                      key:
+                                        type: string
+                                      name:
+                                        type: string
+                                      namespace:
+                                        type: string
+                                    required:
+                                    - key
+                                    - name
+                                    - namespace
+                                    type: object
+                                  serverCert:
+                                    nullable: true
+                                    type: string
+                                  serverName:
+                                    type: string
+                                  serviceAccountTokenPath:
+                                    nullable: true
+                                    type: string
+                                  timeout:
+                                    default: 30s
+                                    type: string
+                                  tlsSkipVerify:
+                                    default: false
+                                    type: boolean
+                                  tokenSecretRef:
+                                    nullable: true
+                                    properties:
+                                      key:
+                                        type: string
+                                      name:
+                                        type: string
+                                      namespace:
+                                        type: string
+                                    required:
+                                    - key
+                                    - name
+                                    - namespace
+                                    type: object
+                                  url:
+                                    type: string
+                                required:
+                                - maxRetries
+                                - timeout
+                                - tlsSkipVerify
+                                - url
+                                type: object
+                            required:
+                            - request
+                            - vault
+                            type: object
                         type: object
                     required:
                     - component

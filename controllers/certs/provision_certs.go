@@ -4,9 +4,10 @@ import (
 	"crypto/ecdsa"
 	"crypto/x509"
 	"fmt"
-	"github.com/sirupsen/logrus"
 	"io/ioutil"
 	"path/filepath"
+
+	"github.com/sirupsen/logrus"
 
 	"github.com/hyperledger/fabric/bccsp"
 	bccsputils "github.com/hyperledger/fabric/bccsp/utils"
@@ -323,7 +324,7 @@ func EnrollUser(params EnrollUserRequest) (*x509.Certificate, *ecdsa.PrivateKey,
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	enrollResponse, err := caClient.Enroll(&api.EnrollmentRequest{
+	enrollmentRequest := &api.EnrollmentRequest{
 		Name:     params.User,
 		Secret:   params.Secret,
 		CAName:   params.Name,
@@ -335,7 +336,9 @@ func EnrollUser(params EnrollUserRequest) (*x509.Certificate, *ecdsa.PrivateKey,
 			Hosts: params.Hosts,
 			CN:    params.CN,
 		},
-	})
+	}
+	logrus.Infof("Enrollment request: %+v", enrollmentRequest)
+	enrollResponse, err := caClient.Enroll(enrollmentRequest)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -392,17 +395,6 @@ func GetClient(ca FabricCAParams) (*lib.Client, error) {
 				Enabled:   true,
 				CertFiles: []string{caCertFile.Name()},
 			},
-			//MSPDir: "",
-			//Enrollment: api.EnrollmentRequest{},
-			//CSR:        api.CSRInfo{},
-			//ID:         api.RegistrationRequest{},
-			//Revoke:     api.RevocationRequest{},
-			//CAInfo:     api.GetCAInfoRequest{},
-			//CAName:     "",
-			//CSP:        nil,
-			//Debug:      false,
-			//LogLevel:   "",
-			//Idemix:     api.Idemix{},
 		},
 	}
 	err = client.Init()

@@ -34,6 +34,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/kfsoftware/hlf-operator/controllers/certs"
+	"github.com/kfsoftware/hlf-operator/controllers/certs_vault"
 	"github.com/kfsoftware/hlf-operator/controllers/utils"
 	hlfv1alpha1 "github.com/kfsoftware/hlf-operator/pkg/apis/hlf.kungfusoftware.es/v1alpha1"
 	"helm.sh/helm/v3/pkg/action"
@@ -823,119 +824,320 @@ func getExistingSignCrypto(client *kubernetes.Clientset, chartName string, names
 	return crt, key, rootCrt, nil
 }
 
-func CreateTLSCryptoMaterial(conf *hlfv1alpha1.FabricPeer, caName string, caurl string, enrollID string, enrollSecret string, tlsCertString string, hosts []string) (*x509.Certificate, *ecdsa.PrivateKey, *x509.Certificate, error) {
-	tlsCert, tlsKey, tlsRootCert, err := certs.EnrollUser(certs.EnrollUserRequest{
-		TLSCert:    tlsCertString,
-		URL:        caurl,
-		Name:       caName,
-		MSPID:      conf.Spec.MspID,
-		User:       enrollID,
-		Secret:     enrollSecret,
-		Hosts:      hosts,
-		CN:         "",
-		Profile:    "tls",
+func getEnrollRequestForFabricCA(client *kubernetes.Clientset, enrollment *hlfv1alpha1.Component, conf *hlfv1alpha1.FabricPeer, profile string) (certs.EnrollUserRequest, error) {
+	cacert, err := getCertBytesFromCATLS(client, enrollment.Catls)
+	if err != nil {
+		return certs.EnrollUserRequest{}, err
+	}
+	tlsCAUrl := fmt.Sprintf("https://%s:%d", enrollment.Cahost, enrollment.Caport)
+	return certs.EnrollUserRequest{
+		Hosts:      []string{},
+		CN:         conf.Name,
+		Profile:    profile,
 		Attributes: nil,
-	})
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	return tlsCert, tlsKey, tlsRootCert, nil
+		User:       enrollment.Enrollid,
+		Secret:     enrollment.Enrollsecret,
+		URL:        tlsCAUrl,
+		Name:       enrollment.Caname,
+		MSPID:      conf.Spec.MspID,
+		TLSCert:    string(cacert),
+	}, nil
 }
 
-func CreateTLSOPSCryptoMaterial(conf *hlfv1alpha1.FabricPeer, caName string, caurl string, enrollID string, enrollSecret string, tlsCertString string, hosts []string) (*x509.Certificate, *ecdsa.PrivateKey, *x509.Certificate, error) {
-	tlsCert, tlsKey, tlsRootCert, err := certs.EnrollUser(
-		certs.EnrollUserRequest{
-			TLSCert:    tlsCertString,
-			URL:        caurl,
-			Name:       caName,
-			MSPID:      conf.Spec.MspID,
-			User:       enrollID,
-			Secret:     enrollSecret,
-			Hosts:      hosts,
-			CN:         "",
-			Profile:    "tls",
-			Attributes: nil,
-		},
-	)
+func getEnrollRequestForFabricCATLS(client *kubernetes.Clientset, enrollment *hlfv1alpha1.TLSComponent, conf *hlfv1alpha1.FabricPeer, profile string) (certs.EnrollUserRequest, error) {
+	cacert, err := getCertBytesFromCATLS(client, enrollment.Catls)
 	if err != nil {
-		return nil, nil, nil, err
+		return certs.EnrollUserRequest{}, err
 	}
-	return tlsCert, tlsKey, tlsRootCert, nil
+	ingressHosts := conf.Spec.Hosts
+	tlsCAUrl := fmt.Sprintf("https://%s:%d", enrollment.Cahost, enrollment.Caport)
+	var hosts []string
+	hosts = append(hosts, enrollment.Csr.Hosts...)
+	hosts = append(hosts, ingressHosts...)
+	return certs.EnrollUserRequest{
+		Hosts:      hosts,
+		CN:         enrollment.Enrollid,
+		Profile:    profile,
+		Attributes: nil,
+		User:       enrollment.Enrollid,
+		Secret:     enrollment.Enrollsecret,
+		URL:        tlsCAUrl,
+		Name:       enrollment.Caname,
+		MSPID:      conf.Spec.MspID,
+		TLSCert:    string(cacert),
+	}, nil
 }
 
-func CreateSignCryptoMaterial(conf *hlfv1alpha1.FabricPeer, caName string, caurl string, enrollID string, enrollSecret string, tlsCertString string) (*x509.Certificate, *ecdsa.PrivateKey, *x509.Certificate, error) {
-	tlsCert, tlsKey, tlsRootCert, err := certs.EnrollUser(certs.EnrollUserRequest{
-		TLSCert: tlsCertString,
-		URL:     caurl,
-		Name:    caName,
-		MSPID:   conf.Spec.MspID,
-		User:    enrollID,
-		Secret:  enrollSecret,
-	})
-	if err != nil {
-		return nil, nil, nil, err
+func getEnrollRequestForVault(component *hlfv1alpha1.Component, conf *hlfv1alpha1.FabricPeer, profile string) (certs_vault.EnrollUserRequest, error) {
+	return certs_vault.EnrollUserRequest{
+		MSPID:      conf.Spec.MspID,
+		User:       component.Enrollid,
+		Hosts:      []string{},
+		CN:         conf.Name,
+		Attributes: nil,
+	}, nil
+}
+
+func getEnrollRequestForVaultTLS(tls *hlfv1alpha1.TLSComponent, conf *hlfv1alpha1.FabricPeer, profile string) (certs_vault.EnrollUserRequest, error) {
+	ingressHosts := conf.Spec.Hosts
+	tlsParams := tls
+	var hosts []string
+	hosts = append(hosts, tlsParams.Csr.Hosts...)
+	hosts = append(hosts, ingressHosts...)
+	return certs_vault.EnrollUserRequest{
+		MSPID:      conf.Spec.MspID,
+		User:       tls.Enrollid,
+		Hosts:      hosts,
+		CN:         conf.Name,
+		Attributes: nil,
+	}, nil
+}
+
+func CreateTLSCryptoMaterial(client *kubernetes.Clientset, conf *hlfv1alpha1.FabricPeer, enrollment *hlfv1alpha1.TLSComponent) (*x509.Certificate, *ecdsa.PrivateKey, *x509.Certificate, error) {
+	if conf.Spec.CredentialStore == hlfv1alpha1.CredentialStoreKubernetes {
+		enrollRequest, err := getEnrollRequestForFabricCATLS(client, enrollment, conf, "tls")
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		tlsCert, tlsKey, tlsRootCert, err := certs.EnrollUser(enrollRequest)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		return tlsCert, tlsKey, tlsRootCert, nil
+	} else if conf.Spec.CredentialStore == hlfv1alpha1.CredentialStoreVault {
+		enrollRequest, err := getEnrollRequestForVaultTLS(enrollment, conf, "tls")
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		tlsCert, tlsKey, tlsRootCert, err := certs_vault.EnrollUser(
+			client,
+			&enrollment.Vault.Vault,
+			&enrollment.Vault.Request,
+			enrollRequest,
+		)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		return tlsCert, tlsKey, tlsRootCert, nil
+	} else {
+		return nil, nil, nil, errors.New("not implemented")
 	}
-	return tlsCert, tlsKey, tlsRootCert, nil
+}
+
+func CreateTLSOPSCryptoMaterial(client *kubernetes.Clientset, conf *hlfv1alpha1.FabricPeer, enrollment *hlfv1alpha1.TLSComponent) (*x509.Certificate, *ecdsa.PrivateKey, *x509.Certificate, error) {
+	if conf.Spec.CredentialStore == hlfv1alpha1.CredentialStoreKubernetes {
+		enrollRequest, err := getEnrollRequestForFabricCATLS(client, enrollment, conf, "tls")
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		tlsCert, tlsKey, tlsRootCert, err := certs.EnrollUser(enrollRequest)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		return tlsCert, tlsKey, tlsRootCert, nil
+	} else if conf.Spec.CredentialStore == hlfv1alpha1.CredentialStoreVault {
+		enrollRequest, err := getEnrollRequestForVaultTLS(enrollment, conf, "tls")
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		tlsCert, tlsKey, tlsRootCert, err := certs_vault.EnrollUser(
+			client,
+			&enrollment.Vault.Vault,
+			&enrollment.Vault.Request,
+			enrollRequest,
+		)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		return tlsCert, tlsKey, tlsRootCert, nil
+	} else {
+		return nil, nil, nil, errors.New(fmt.Sprintf("not implemented for credential store %s", conf.Spec.CredentialStore))
+	}
+}
+
+func CreateSignCryptoMaterial(client *kubernetes.Clientset, conf *hlfv1alpha1.FabricPeer, enrollment *hlfv1alpha1.Component) (*x509.Certificate, *ecdsa.PrivateKey, *x509.Certificate, error) {
+	switch conf.Spec.CredentialStore {
+	case hlfv1alpha1.CredentialStoreKubernetes:
+		enrollRequest, err := getEnrollRequestForFabricCA(client, enrollment, conf, "tls")
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		tlsCert, tlsKey, tlsRootCert, err := certs.EnrollUser(enrollRequest)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		return tlsCert, tlsKey, tlsRootCert, nil
+	case hlfv1alpha1.CredentialStoreVault:
+		enrollRequest, err := getEnrollRequestForVault(enrollment, conf, "tls")
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		tlsCert, tlsKey, tlsRootCert, err := certs_vault.EnrollUser(
+			client,
+			&enrollment.Vault.Vault,
+			&enrollment.Vault.Request,
+			enrollRequest,
+		)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		return tlsCert, tlsKey, tlsRootCert, nil
+	default:
+		return nil, nil, nil, errors.New(fmt.Sprintf("not implemented for credential store %s", conf.Spec.CredentialStore))
+	}
+}
+
+func getReenrollRequestForFabricCA(client *kubernetes.Clientset, enrollment *hlfv1alpha1.Component, conf *hlfv1alpha1.FabricPeerSpec, profile string) (certs.ReenrollUserRequest, error) {
+	cacert, err := getCertBytesFromCATLS(client, enrollment.Catls)
+	if err != nil {
+		return certs.ReenrollUserRequest{}, err
+	}
+	tlsCAUrl := fmt.Sprintf("https://%s:%d", enrollment.Cahost, enrollment.Caport)
+	return certs.ReenrollUserRequest{
+		TLSCert:  string(cacert),
+		Hosts:    []string{},
+		CN:       "",
+		Profile:  profile,
+		URL:      tlsCAUrl,
+		Name:     enrollment.Caname,
+		EnrollID: enrollment.Enrollid,
+		MSPID:    conf.MspID,
+	}, nil
+}
+
+func getReenrollRequestForFabricCATLS(client *kubernetes.Clientset, enrollment *hlfv1alpha1.TLSComponent, conf *hlfv1alpha1.FabricPeerSpec, profile string) (certs.ReenrollUserRequest, error) {
+	cacert, err := getCertBytesFromCATLS(client, enrollment.Catls)
+	if err != nil {
+		return certs.ReenrollUserRequest{}, err
+	}
+	ingressHosts := conf.Hosts
+	tlsParams := enrollment
+	var hosts []string
+	hosts = append(hosts, tlsParams.Csr.Hosts...)
+	hosts = append(hosts, ingressHosts...)
+	tlsCAUrl := fmt.Sprintf("https://%s:%d", enrollment.Cahost, enrollment.Caport)
+	return certs.ReenrollUserRequest{
+		TLSCert:  string(cacert),
+		Hosts:    hosts,
+		CN:       "",
+		Profile:  profile,
+		URL:      tlsCAUrl,
+		Name:     enrollment.Caname,
+		EnrollID: enrollment.Enrollid,
+		MSPID:    conf.MspID,
+	}, nil
+}
+
+func getReenrollRequestForVault(enrollment *hlfv1alpha1.Component, conf *hlfv1alpha1.FabricPeer, profile string) (certs_vault.ReenrollUserRequest, error) {
+	return certs_vault.ReenrollUserRequest{
+		MSPID:      conf.Spec.MspID,
+		Hosts:      []string{},
+		CN:         conf.Name,
+		Attributes: nil,
+	}, nil
+}
+
+func getReenrollRequestForVaultTLS(tls *hlfv1alpha1.TLSComponent, conf *hlfv1alpha1.FabricPeer, profile string) (certs_vault.ReenrollUserRequest, error) {
+	ingressHosts := conf.Spec.Hosts
+	tlsParams := tls
+	var hosts []string
+	hosts = append(hosts, tlsParams.Csr.Hosts...)
+	hosts = append(hosts, ingressHosts...)
+	return certs_vault.ReenrollUserRequest{
+		MSPID:      conf.Spec.MspID,
+		Hosts:      hosts,
+		CN:         conf.Name,
+		Attributes: nil,
+	}, nil
 }
 
 func ReenrollSignCryptoMaterial(
 	conf *hlfv1alpha1.FabricPeer,
-	caName string,
-	caurl string,
-	enrollID string,
-	tlsCertString string,
+	client *kubernetes.Clientset,
+	enrollment *hlfv1alpha1.Component,
 	signCertPem string,
 	privateKey *ecdsa.PrivateKey,
 ) (*x509.Certificate, *ecdsa.PrivateKey, *x509.Certificate, error) {
-	signCert, signRootCert, err := certs.ReenrollUser(
-		certs.ReenrollUserRequest{
-			TLSCert:  tlsCertString,
-			URL:      caurl,
-			Name:     caName,
-			EnrollID: enrollID,
-			MSPID:    conf.Spec.MspID,
-		},
-		signCertPem,
-		privateKey,
-	)
-	if err != nil {
-		return nil, nil, nil, err
+	if conf.Spec.CredentialStore == hlfv1alpha1.CredentialStoreVault {
+		reenrollRequest, err := getReenrollRequestForVault(enrollment, conf, "tls")
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		signCert, signRootCert, err := certs_vault.ReenrollUser(
+			client,
+			&enrollment.Vault.Vault,
+			&enrollment.Vault.Request,
+			reenrollRequest,
+			signCertPem,
+			privateKey,
+		)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		return signCert, privateKey, signRootCert, nil
+	} else if conf.Spec.CredentialStore == hlfv1alpha1.CredentialStoreKubernetes {
+		reenrollRequest, err := getReenrollRequestForFabricCA(client, enrollment, &conf.Spec, "tls")
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		signCert, signRootCert, err := certs.ReenrollUser(
+			reenrollRequest,
+			signCertPem,
+			privateKey,
+		)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		return signCert, privateKey, signRootCert, nil
+	} else {
+		return nil, nil, nil, errors.New(fmt.Sprintf("not implemented for credential store %s", conf.Spec.CredentialStore))
 	}
-	return signCert, privateKey, signRootCert, nil
 }
 
 func ReenrollTLSCryptoMaterial(
 	conf *hlfv1alpha1.FabricPeer,
-	caName string,
-	caurl string,
-	enrollID string,
-	tlsCertString string,
-	hosts []string,
+	client *kubernetes.Clientset,
+	enrollment *hlfv1alpha1.TLSComponent,
 	tlsCertPem string,
 	tlsKey *ecdsa.PrivateKey,
 ) (*x509.Certificate, *ecdsa.PrivateKey, *x509.Certificate, error) {
-	tlsCert, tlsRootCert, err := certs.ReenrollUser(
-		certs.ReenrollUserRequest{
-			TLSCert:    tlsCertString,
-			URL:        caurl,
-			Name:       caName,
-			MSPID:      conf.Spec.MspID,
-			Hosts:      hosts,
-			EnrollID:   enrollID,
-			CN:         "",
-			Profile:    "tls",
-			Attributes: nil,
-		},
-		tlsCertPem,
-		tlsKey,
-	)
-	if err != nil {
-		return nil, nil, nil, err
+	if conf.Spec.CredentialStore == hlfv1alpha1.CredentialStoreVault {
+		reenrollRequest, err := getReenrollRequestForVaultTLS(enrollment, conf, "tls")
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		tlsCert, tlsRootCert, err := certs_vault.ReenrollUser(
+			client,
+			&enrollment.Vault.Vault,
+			&enrollment.Vault.Request,
+			reenrollRequest,
+			tlsCertPem,
+			tlsKey,
+		)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		return tlsCert, tlsKey, tlsRootCert, nil
+	} else if conf.Spec.CredentialStore == hlfv1alpha1.CredentialStoreKubernetes {
+		reenrollRequest, err := getReenrollRequestForFabricCATLS(client, enrollment, &conf.Spec, "tls")
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		tlsCert, tlsRootCert, err := certs.ReenrollUser(
+			reenrollRequest,
+			tlsCertPem,
+			tlsKey,
+		)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		return tlsCert, tlsKey, tlsRootCert, nil
+	} else {
+		return nil, nil, nil, errors.New(fmt.Sprintf("not implemented for credential store %s", conf.Spec.CredentialStore))
 	}
-	return tlsCert, tlsKey, tlsRootCert, nil
 }
 
-func getCertBytesFromCATLS(client *kubernetes.Clientset, caTls hlfv1alpha1.Catls) ([]byte, error) {
+func getCertBytesFromCATLS(client *kubernetes.Clientset, caTls *hlfv1alpha1.Catls) ([]byte, error) {
 	var signCertBytes []byte
 	var err error
 	if caTls.Cacert != "" {
@@ -965,7 +1167,6 @@ func GetConfig(
 ) (*FabricPeerChart, error) {
 	spec := conf.Spec
 	tlsParams := conf.Spec.Secret.Enrollment.TLS
-	tlsCAUrl := fmt.Sprintf("https://%s:%d", tlsParams.Cahost, tlsParams.Caport)
 	ingressHosts := spec.Hosts
 	var hosts []string
 	hosts = append(hosts, tlsParams.Csr.Hosts...)
@@ -992,10 +1193,6 @@ func GetConfig(
 			return nil, errors.Wrapf(err, "failed to parse tls private key")
 		}
 	} else if refreshCerts {
-		cacert, err := getCertBytesFromCATLS(client, tlsParams.Catls)
-		if err != nil {
-			return nil, errors.Wrapf(err, "failed to decode tls ca cert")
-		}
 		tlsCert, tlsKey, tlsRootCert, err = getExistingTLSCrypto(client, chartName, namespace)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to get existing tls crypto material")
@@ -1003,13 +1200,9 @@ func GetConfig(
 		if tlsCert.NotAfter.Before(time.Now()) {
 			log.Infof("Enrolling tls crypto material for %s", chartName)
 			tlsCert, tlsKey, tlsRootCert, err = CreateTLSCryptoMaterial(
+				client,
 				conf,
-				tlsParams.Caname,
-				tlsCAUrl,
-				tlsParams.Enrollid,
-				tlsParams.Enrollsecret,
-				string(cacert),
-				hosts,
+				&conf.Spec.Secret.Enrollment.TLS,
 			)
 			if err != nil {
 				return nil, err
@@ -1018,11 +1211,8 @@ func GetConfig(
 		} else {
 			tlsCert, tlsKey, tlsRootCert, err = ReenrollTLSCryptoMaterial(
 				conf,
-				tlsParams.Caname,
-				tlsCAUrl,
-				tlsParams.Enrollid,
-				string(cacert),
-				hosts,
+				client,
+				&tlsParams,
 				string(utils.EncodeX509Certificate(tlsCert)),
 				tlsKey,
 			)
@@ -1038,13 +1228,9 @@ func GetConfig(
 				log.Infof("Re enroll failed because of credentials, falling back to enroll")
 				// just enroll the user
 				tlsCert, tlsKey, tlsRootCert, err = CreateTLSCryptoMaterial(
+					client,
 					conf,
-					tlsParams.Caname,
-					tlsCAUrl,
-					tlsParams.Enrollid,
-					tlsParams.Enrollsecret,
-					string(cacert),
-					hosts,
+					&tlsParams,
 				)
 				if err != nil {
 					return nil, err
@@ -1056,18 +1242,10 @@ func GetConfig(
 	} else {
 		tlsCert, tlsKey, tlsRootCert, err = getExistingTLSCrypto(client, chartName, namespace)
 		if err != nil {
-			cacert, err := getCertBytesFromCATLS(client, tlsParams.Catls)
-			if err != nil {
-				return nil, err
-			}
 			tlsCert, tlsKey, tlsRootCert, err = CreateTLSCryptoMaterial(
+				client,
 				conf,
-				tlsParams.Caname,
-				tlsCAUrl,
-				tlsParams.Enrollid,
-				tlsParams.Enrollsecret,
-				string(cacert),
-				hosts,
+				&tlsParams,
 			)
 			if err != nil {
 				return nil, err
@@ -1075,18 +1253,10 @@ func GetConfig(
 		}
 	}
 	if refreshCerts {
-		cacert, err := getCertBytesFromCATLS(client, tlsParams.Catls)
-		if err != nil {
-			return nil, err
-		}
 		tlsOpsCert, tlsOpsKey, _, err = CreateTLSOPSCryptoMaterial(
+			client,
 			conf,
-			tlsParams.Caname,
-			tlsCAUrl,
-			tlsParams.Enrollid,
-			tlsParams.Enrollsecret,
-			string(cacert),
-			hosts,
+			&tlsParams,
 		)
 		if err != nil {
 			return nil, err
@@ -1094,18 +1264,10 @@ func GetConfig(
 	} else {
 		tlsOpsCert, tlsOpsKey, _, err = getExistingTLSOPSCrypto(client, chartName, namespace)
 		if err != nil {
-			cacert, err := getCertBytesFromCATLS(client, tlsParams.Catls)
-			if err != nil {
-				return nil, err
-			}
 			tlsOpsCert, tlsOpsKey, _, err = CreateTLSOPSCryptoMaterial(
+				client,
 				conf,
-				tlsParams.Caname,
-				tlsCAUrl,
-				tlsParams.Enrollid,
-				tlsParams.Enrollsecret,
-				string(cacert),
-				hosts,
+				&tlsParams,
 			)
 			if err != nil {
 				return nil, err
@@ -1113,7 +1275,6 @@ func GetConfig(
 		}
 	}
 	signParams := conf.Spec.Secret.Enrollment.Component
-	caUrl := fmt.Sprintf("https://%s:%d", signParams.Cahost, signParams.Caport)
 	if signParams.External != nil {
 		secret, err := client.CoreV1().Secrets(signParams.External.SecretNamespace).Get(ctx, signParams.External.SecretName, v1.GetOptions{})
 		if err != nil {
@@ -1132,10 +1293,6 @@ func GetConfig(
 			return nil, errors.Wrapf(err, "failed to parse sign private key")
 		}
 	} else if refreshCerts {
-		cacert, err := getCertBytesFromCATLS(client, signParams.Catls)
-		if err != nil {
-			return nil, errors.Wrapf(err, "failed to decode sign ca cert")
-		}
 		signCert, signKey, signRootCert, err = getExistingSignCrypto(client, chartName, namespace)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to get existing sign crypto material")
@@ -1144,12 +1301,9 @@ func GetConfig(
 		if signCert.NotAfter.Before(time.Now()) {
 			log.Infof("Renewing certificates using enroll")
 			signCert, signKey, signRootCert, err = CreateSignCryptoMaterial(
+				client,
 				conf,
-				signParams.Caname,
-				caUrl,
-				signParams.Enrollid,
-				signParams.Enrollsecret,
-				string(cacert),
+				&signParams,
 			)
 			if err != nil {
 				return nil, err
@@ -1159,10 +1313,8 @@ func GetConfig(
 			log.Infof("Renewing certificates using reenroll")
 			signCert, signKey, signRootCert, err = ReenrollSignCryptoMaterial(
 				conf,
-				signParams.Caname,
-				caUrl,
-				signParams.Enrollid,
-				string(cacert),
+				client,
+				&signParams,
 				string(signCertPem),
 				signKey,
 			)
@@ -1178,12 +1330,9 @@ func GetConfig(
 				log.Infof("Re enroll failed because of credentials, falling back to enroll")
 				// just enroll the user
 				signCert, signKey, signRootCert, err = CreateSignCryptoMaterial(
+					client,
 					conf,
-					signParams.Caname,
-					caUrl,
-					signParams.Enrollid,
-					signParams.Enrollsecret,
-					string(cacert),
+					&signParams,
 				)
 				if err != nil {
 					return nil, err
@@ -1195,17 +1344,10 @@ func GetConfig(
 	} else {
 		signCert, signKey, signRootCert, err = getExistingSignCrypto(client, chartName, namespace)
 		if err != nil {
-			cacert, err := getCertBytesFromCATLS(client, signParams.Catls)
-			if err != nil {
-				return nil, err
-			}
 			signCert, signKey, signRootCert, err = CreateSignCryptoMaterial(
+				client,
 				conf,
-				signParams.Caname,
-				caUrl,
-				signParams.Enrollid,
-				signParams.Enrollsecret,
-				string(cacert),
+				&signParams,
 			)
 			if err != nil {
 				return nil, err

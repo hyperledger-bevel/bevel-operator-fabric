@@ -838,7 +838,7 @@ func getEnrollRequestForFabricCA(client *kubernetes.Clientset, enrollment *hlfv1
 		User:       enrollment.Enrollid,
 		Secret:     enrollment.Enrollsecret,
 		URL:        tlsCAUrl,
-		Name:       enrollment.Enrollid,
+		Name:       enrollment.Caname,
 		MSPID:      conf.Spec.MspID,
 		TLSCert:    string(cacert),
 	}, nil
@@ -956,7 +956,8 @@ func CreateTLSOPSCryptoMaterial(client *kubernetes.Clientset, conf *hlfv1alpha1.
 }
 
 func CreateSignCryptoMaterial(client *kubernetes.Clientset, conf *hlfv1alpha1.FabricPeer, enrollment *hlfv1alpha1.Component) (*x509.Certificate, *ecdsa.PrivateKey, *x509.Certificate, error) {
-	if conf.Spec.CredentialStore == hlfv1alpha1.CredentialStoreKubernetes {
+	switch conf.Spec.CredentialStore {
+	case hlfv1alpha1.CredentialStoreKubernetes:
 		enrollRequest, err := getEnrollRequestForFabricCA(client, enrollment, conf, "tls")
 		if err != nil {
 			return nil, nil, nil, err
@@ -966,7 +967,7 @@ func CreateSignCryptoMaterial(client *kubernetes.Clientset, conf *hlfv1alpha1.Fa
 			return nil, nil, nil, err
 		}
 		return tlsCert, tlsKey, tlsRootCert, nil
-	} else if conf.Spec.CredentialStore == hlfv1alpha1.CredentialStoreVault {
+	case hlfv1alpha1.CredentialStoreVault:
 		enrollRequest, err := getEnrollRequestForVault(enrollment, conf, "tls")
 		if err != nil {
 			return nil, nil, nil, err
@@ -981,7 +982,7 @@ func CreateSignCryptoMaterial(client *kubernetes.Clientset, conf *hlfv1alpha1.Fa
 			return nil, nil, nil, err
 		}
 		return tlsCert, tlsKey, tlsRootCert, nil
-	} else {
+	default:
 		return nil, nil, nil, errors.New(fmt.Sprintf("not implemented for credential store %s", conf.Spec.CredentialStore))
 	}
 }

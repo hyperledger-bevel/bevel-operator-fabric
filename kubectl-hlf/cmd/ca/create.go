@@ -131,6 +131,7 @@ func (c *createCmd) run(_ []string) error {
 	if err != nil {
 		return err
 	}
+	replicas := 1
 	fabricCA := &v1alpha1.FabricCA{
 		TypeMeta: v1.TypeMeta{
 			Kind:       "FabricCA",
@@ -142,6 +143,7 @@ func (c *createCmd) run(_ []string) error {
 		},
 		Spec: v1alpha1.FabricCASpec{
 			CredentialStore: v1alpha1.CredentialStore(c.caOpts.CredentialStore),
+			Replicas:        &replicas,
 			Database: v1alpha1.FabricCADatabase{
 				Type:       c.caOpts.DBType,
 				Datasource: c.caOpts.DBDataSource,

@@ -28,6 +28,7 @@ type updateExternalChaincodeCmd struct {
 	replicas int
 
 	tlsRequired bool
+	Env         []string
 }
 
 func (c *updateExternalChaincodeCmd) validate() error {
@@ -83,6 +84,13 @@ func (c *updateExternalChaincodeCmd) run() error {
 	fabricChaincode.Spec.PackageID = c.packageID
 	fabricChaincode.Spec.ImagePullSecrets = []corev1.LocalObjectReference{}
 	fabricChaincode.Spec.Replicas = c.replicas
+	if len(c.Env) > 0 {
+		env, err := c.handleEnv()
+		if err != nil {
+			return err
+		}
+		fabricChaincode.Spec.Env = env
+	}
 	if c.tlsRequired {
 		fabricCA, err := oclient.HlfV1alpha1().FabricCAs(c.caNamespace).Get(ctx, c.caName, v1.GetOptions{})
 		if err != nil {
@@ -119,6 +127,22 @@ func (c *updateExternalChaincodeCmd) run() error {
 	fmt.Printf("Updated external chaincode %s\n", fabricChaincode.Name)
 	return nil
 }
+
+func (c *updateExternalChaincodeCmd) handleEnv() ([]corev1.EnvVar, error) {
+	var env []corev1.EnvVar
+	for _, literalSource := range c.Env {
+		keyName, value, err := ParseEnv(literalSource)
+		if err != nil {
+			return nil, err
+		}
+		env = append(env, corev1.EnvVar{
+			Name:  keyName,
+			Value: value,
+		})
+	}
+	return env, nil
+}
+
 func newExternalChaincodeUpdateCmd() *cobra.Command {
 	c := &updateExternalChaincodeCmd{}
 	cmd := &cobra.Command{
@@ -142,5 +166,6 @@ func newExternalChaincodeUpdateCmd() *cobra.Command {
 	f.BoolVarP(&c.force, "force", "", false, "Force restart of chaincode")
 	f.IntVar(&c.replicas, "replicas", 1, "Replicas of the chaincode")
 	f.BoolVar(&c.tlsRequired, "tls-required", false, "Require TLS for chaincode")
+	f.StringArrayVarP(&c.Env, "env", "", []string{}, "Environment variable for the Chaincode (key=value)")
 	return cmd
 }

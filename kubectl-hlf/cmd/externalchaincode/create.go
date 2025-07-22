@@ -25,6 +25,7 @@ type createExternalChaincodeCmd struct {
 	replicas         int
 	tlsRequired      bool
 	ImagePullSecrets []string
+	Env              []string
 }
 
 func (c *createExternalChaincodeCmd) validate() error {
@@ -59,6 +60,7 @@ func (c *createExternalChaincodeCmd) validate() error {
 	}
 	return nil
 }
+
 func (c *createExternalChaincodeCmd) run() error {
 	oclient, err := helpers.GetKubeOperatorClient()
 	if err != nil {
@@ -73,6 +75,7 @@ func (c *createExternalChaincodeCmd) run() error {
 		ImagePullSecrets: []corev1.LocalObjectReference{},
 		Credentials:      nil,
 		Replicas:         c.replicas,
+		Env:              []corev1.EnvVar{},
 	}
 	if len(c.ImagePullSecrets) > 0 {
 		imagePullSecrets := []corev1.LocalObjectReference{}
@@ -106,6 +109,13 @@ func (c *createExternalChaincodeCmd) run() error {
 			Enrollsecret: c.enrollSecret,
 		}
 	}
+	if len(c.Env) > 0 {
+		env, err := c.handleEnv()
+		if err != nil {
+			return err
+		}
+		fabricChaincodeSpec.Env = env
+	}
 	fabricChaincode := &v1alpha1.FabricChaincode{
 		ObjectMeta: v1.ObjectMeta{
 			Name:      c.name,
@@ -124,6 +134,22 @@ func (c *createExternalChaincodeCmd) run() error {
 	fmt.Printf("Created external chaincode %s\n", fabricChaincode.Name)
 	return nil
 }
+
+func (c *createExternalChaincodeCmd) handleEnv() ([]corev1.EnvVar, error) {
+	var env []corev1.EnvVar
+	for _, literalSource := range c.Env {
+		keyName, value, err := ParseEnv(literalSource)
+		if err != nil {
+			return nil, err
+		}
+		env = append(env, corev1.EnvVar{
+			Name:  keyName,
+			Value: value,
+		})
+	}
+	return env, nil
+}
+
 func newExternalChaincodeCreateCmd() *cobra.Command {
 	c := &createExternalChaincodeCmd{}
 	cmd := &cobra.Command{
@@ -148,5 +174,6 @@ func newExternalChaincodeCreateCmd() *cobra.Command {
 	f.IntVar(&c.replicas, "replicas", 1, "Replicas of the external chaincode")
 	f.BoolVar(&c.tlsRequired, "tls-required", false, "Whether the chaincode requires TLS or not")
 	f.StringArrayVarP(&c.ImagePullSecrets, "image-pull-secrets", "", []string{}, "Image Pull Secrets for the Chaincode Image")
+	f.StringArrayVarP(&c.Env, "env", "", []string{}, "Environment variable for the Chaincode (key=value)")
 	return cmd
 }

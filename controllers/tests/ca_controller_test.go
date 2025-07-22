@@ -220,6 +220,7 @@ func randomFabricCA(releaseName string, namespace string) *hlfv1alpha1.FabricCA 
 	Expect(err).ToNot(HaveOccurred())
 	k8sIP, err := utils.GetPublicIPKubernetes(ClientSet)
 	Expect(err).ToNot(HaveOccurred())
+	replicas := 1
 
 	fabricCa := &hlfv1alpha1.FabricCA{
 		TypeMeta: NewTypeMeta("FabricCA"),
@@ -229,6 +230,7 @@ func randomFabricCA(releaseName string, namespace string) *hlfv1alpha1.FabricCA 
 		},
 		Spec: hlfv1alpha1.FabricCASpec{
 			CredentialStore: hlfv1alpha1.CredentialStoreKubernetes,
+			Replicas:        &replicas,
 			Istio: &hlfv1alpha1.FabricIstio{
 				Hosts: []string{},
 			},
@@ -810,7 +812,7 @@ var _ = Describe("Fabric Controllers", func() {
 		Expect(err).ToNot(HaveOccurred())
 		k8sIP, err := utils.GetPublicIPKubernetes(ClientSet)
 		Expect(err).ToNot(HaveOccurred())
-
+		replicas := 1
 		fabricCa := &hlfv1alpha1.FabricCA{
 			TypeMeta: NewTypeMeta("FabricCA"),
 			ObjectMeta: v1.ObjectMeta{
@@ -819,6 +821,7 @@ var _ = Describe("Fabric Controllers", func() {
 			},
 			Spec: hlfv1alpha1.FabricCASpec{
 				CredentialStore: hlfv1alpha1.CredentialStoreKubernetes,
+				Replicas:        &replicas,
 				Istio: &hlfv1alpha1.FabricIstio{
 					Hosts: []string{},
 				},

@@ -557,6 +557,8 @@ type FabricPeerStatus struct {
 	SignCACert string `json:"signCaCert"`
 	// +optional
 	NodePort int `json:"port"`
+	// +optional
+	CertRenewalLeaseHeld bool `json:"certRenewalLeaseHeld,omitempty"`
 }
 type OrdererService struct {
 	// +kubebuilder:validation:Enum=NodePort;ClusterIP;LoadBalancer
@@ -768,6 +770,8 @@ type FabricOrdererNodeStatus struct {
 	NodePort int `json:"port"`
 	// +optional
 	Message string `json:"message"`
+	// +optional
+	CertRenewalLeaseHeld bool `json:"certRenewalLeaseHeld,omitempty"`
 }
 
 type Cors struct {

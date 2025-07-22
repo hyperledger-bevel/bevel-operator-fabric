@@ -4,6 +4,7 @@ go 1.17
 
 require (
 	github.com/hyperledger/fabric-sdk-go v1.0.0
+	google.golang.org/grpc v1.65.0
 	github.com/sirupsen/logrus v1.3.0
 )
 

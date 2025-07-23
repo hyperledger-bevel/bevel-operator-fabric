@@ -29,6 +29,7 @@ const sidebars: SidebarsConfig = {
 		"User Guide": [
 			"user-guide/network-config",
 			"user-guide/network-config-kubernetes",
+			"user-guide/hashicorp-vault",
 			"user-guide/create-channel",
 			"user-guide/install-chaincode",
 			"user-guide/enroll-users",

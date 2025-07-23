@@ -439,7 +439,6 @@ func getEnrollRequestForFabricCA(client *kubernetes.Clientset, conf *hlfv1alpha1
 	return certs.EnrollUserRequest{
 		Hosts:      []string{},
 		CN:         "",
-		Profile:    conf.Spec.Caname,
 		Attributes: nil,
 		User:       conf.Spec.Enrollid,
 		Secret:     conf.Spec.Enrollsecret,
@@ -510,7 +509,6 @@ func getReenrollRequestForFabricCA(client *kubernetes.Clientset, conf *hlfv1alph
 		TLSCert:  string(cacert),
 		Hosts:    []string{},
 		CN:       "",
-		Profile:  profile,
 		URL:      tlsCAUrl,
 		Name:     conf.Spec.Caname,
 		EnrollID: conf.Spec.Enrollid,

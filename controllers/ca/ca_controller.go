@@ -1108,7 +1108,9 @@ func Reconcile(
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-
+	if hlf.Spec.CredentialStore == "" {
+		hlf.Spec.CredentialStore = "kubernetes"
+	}
 	if exists {
 		// update
 		log.Debugf("Release %s exists, updating", releaseName)

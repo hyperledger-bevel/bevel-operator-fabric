@@ -121,6 +121,9 @@ func (r *FabricIdentityReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			return ctrl.Result{}, err
 		}
 	}
+	if fabricIdentity.Spec.CredentialStore == "" {
+		fabricIdentity.Spec.CredentialStore = "kubernetes"
+	}
 	clientSet, err := utils.GetClientKubeWithConf(r.Config)
 	if err != nil {
 		r.setConditionStatus(ctx, fabricIdentity, hlfv1alpha1.FailedStatus, false, err, false)

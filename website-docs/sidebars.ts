@@ -22,6 +22,7 @@ const sidebars: SidebarsConfig = {
 			"operator-guide/increase-resources",
 			"operator-guide/increase-storage",
 			"operator-guide/renew-certificates",
+			"operator-guide/prometheus-metrics",
 			"operator-guide/istio",
 			"operator-guide/upgrade-hlf-operator",
 			"operator-guide/auto-renew-certificates",

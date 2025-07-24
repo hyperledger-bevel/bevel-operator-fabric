@@ -144,6 +144,9 @@ func (r *FabricOrdererNodeReconciler) Reconcile(ctx context.Context, req ctrl.Re
 			return ctrl.Result{}, err
 		}
 	}
+	if fabricOrdererNode.Spec.CredentialStore == "" {
+		fabricOrdererNode.Spec.CredentialStore = "kubernetes"
+	}
 	cmdStatus := action.NewStatus(cfg)
 	exists := true
 	helmStatus, err := cmdStatus.Run(releaseName)
@@ -757,7 +760,7 @@ func ReenrollTLSCryptoMaterial(
 			return nil, nil, nil, err
 		}
 		return tlsCert, tlsKey, tlsRootCert, nil
-	} else if conf.Spec.CredentialStore == hlfv1alpha1.CredentialStoreKubernetes {
+	} else {
 		reenrollRequest, err := getReenrollRequestForFabricCATLS(client, enrollment, &conf.Spec, "tls")
 		if err != nil {
 			return nil, nil, nil, err
@@ -771,8 +774,6 @@ func ReenrollTLSCryptoMaterial(
 			return nil, nil, nil, err
 		}
 		return tlsCert, tlsKey, tlsRootCert, nil
-	} else {
-		return nil, nil, nil, errors.New(fmt.Sprintf("not implemented for credential store %s", conf.Spec.CredentialStore))
 	}
 }
 

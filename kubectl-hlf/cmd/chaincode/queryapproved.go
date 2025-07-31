@@ -3,13 +3,14 @@ package chaincode
 import (
 	"encoding/json"
 	"fmt"
+	"io"
+
 	"github.com/hyperledger/fabric-sdk-go/pkg/client/resmgmt"
 	"github.com/hyperledger/fabric-sdk-go/pkg/core/config"
 	"github.com/hyperledger/fabric-sdk-go/pkg/fabsdk"
 	"github.com/kfsoftware/hlf-operator/kubectl-hlf/cmd/helpers"
 	"github.com/olekukonko/tablewriter"
 	"github.com/spf13/cobra"
-	"io"
 )
 
 type queryApprovedCmd struct {
@@ -18,6 +19,7 @@ type queryApprovedCmd struct {
 	userName      string
 	channelName   string
 	chaincodeName string
+	output        string
 }
 
 func (c *queryApprovedCmd) validate() error {
@@ -59,6 +61,17 @@ func (c *queryApprovedCmd) run(out io.Writer) error {
 		},
 		resmgmt.WithTargetEndpoints(peerName),
 	)
+	if err != nil {
+		return err
+	}
+	if c.output == "json" {
+		b, err := json.MarshalIndent(chaincode, "", "  ")
+		if err != nil {
+			return err
+		}
+		_, err = out.Write(b)
+		return err
+	}
 	signaturePolicyBytes, err := json.Marshal(chaincode.SignaturePolicy)
 	if err != nil {
 		return err
@@ -99,6 +112,7 @@ func newQueryApprovedCMD(out io.Writer, errOut io.Writer) *cobra.Command {
 	persistentFlags.StringVarP(&c.configPath, "config", "", "", "Configuration file for the SDK")
 	persistentFlags.StringVarP(&c.channelName, "channel", "C", "", "Channel name")
 	persistentFlags.StringVarP(&c.chaincodeName, "chaincode", "c", "", "Chaincode label")
+	persistentFlags.StringVarP(&c.output, "output", "o", "table", "Output format, can be table or json")
 	cmd.MarkPersistentFlagRequired("user")
 	cmd.MarkPersistentFlagRequired("peer")
 	cmd.MarkPersistentFlagRequired("config")

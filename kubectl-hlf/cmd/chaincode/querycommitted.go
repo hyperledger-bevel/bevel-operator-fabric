@@ -3,6 +3,8 @@ package chaincode
 import (
 	"encoding/json"
 	"fmt"
+	"io"
+
 	"github.com/hyperledger/fabric-sdk-go/pkg/client/resmgmt"
 	"github.com/hyperledger/fabric-sdk-go/pkg/core/config"
 	"github.com/hyperledger/fabric-sdk-go/pkg/fabsdk"
@@ -10,7 +12,6 @@ import (
 	"github.com/olekukonko/tablewriter"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
-	"io"
 )
 
 type queryCommittedCmd struct {
@@ -19,6 +20,7 @@ type queryCommittedCmd struct {
 	userName      string
 	channelName   string
 	chaincodeName string
+	output        string
 }
 
 func (c *queryCommittedCmd) validate() error {
@@ -66,6 +68,14 @@ func (c *queryCommittedCmd) run(out io.Writer) error {
 	if len(chaincodes) == 0 {
 		log.Infof("No chaincode found")
 		return nil
+	}
+	if c.output == "json" {
+		b, err := json.MarshalIndent(chaincodes, "", "  ")
+		if err != nil {
+			return err
+		}
+		_, err = out.Write(b)
+		return err
 	}
 	var data [][]string
 	for _, chaincode := range chaincodes {
@@ -121,6 +131,7 @@ func newQueryCommittedCMD(out io.Writer, errOut io.Writer) *cobra.Command {
 	persistentFlags.StringVarP(&c.configPath, "config", "", "", "Configuration file for the SDK")
 	persistentFlags.StringVarP(&c.channelName, "channel", "C", "", "Channel name")
 	persistentFlags.StringVarP(&c.chaincodeName, "chaincode", "c", "", "Chaincode label")
+	persistentFlags.StringVarP(&c.output, "output", "o", "table", "Output format, can be table or json")
 	cmd.MarkPersistentFlagRequired("user")
 	cmd.MarkPersistentFlagRequired("peer")
 	cmd.MarkPersistentFlagRequired("config")

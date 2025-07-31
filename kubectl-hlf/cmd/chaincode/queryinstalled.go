@@ -2,6 +2,8 @@ package chaincode
 
 import (
 	"encoding/json"
+	"io"
+
 	"github.com/hyperledger/fabric-sdk-go/pkg/client/resmgmt"
 	"github.com/hyperledger/fabric-sdk-go/pkg/core/config"
 	"github.com/hyperledger/fabric-sdk-go/pkg/fabsdk"
@@ -9,7 +11,6 @@ import (
 	"github.com/olekukonko/tablewriter"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
-	"io"
 )
 
 type queryInstalledCmd struct {
@@ -17,6 +18,7 @@ type queryInstalledCmd struct {
 	peer       string
 	userName   string
 	mspID      string
+	output     string
 }
 
 func (c *queryInstalledCmd) validate() error {
@@ -66,6 +68,14 @@ func (c *queryInstalledCmd) run(out io.Writer) error {
 		log.Infof("No chaincodes installed")
 		return nil
 	}
+	if c.output == "json" {
+		b, err := json.MarshalIndent(chaincodes, "", "  ")
+		if err != nil {
+			return err
+		}
+		_, err = out.Write(b)
+		return err
+	}
 	var data [][]string
 	for _, chaincode := range chaincodes {
 		referencesJson, err := json.Marshal(chaincode.References)
@@ -109,6 +119,7 @@ func newChaincodeQueryInstalledCMD(out io.Writer, errOut io.Writer) *cobra.Comma
 	persistentFlags.StringVarP(&c.userName, "user", "", "", "User name for the transaction")
 	persistentFlags.StringVarP(&c.configPath, "config", "", "", "Configuration file for the SDK")
 	persistentFlags.StringVarP(&c.mspID, "mspID", "", "", "MSP ID of the peer")
+	persistentFlags.StringVarP(&c.output, "output", "o", "table", "Output format, can be table or json")
 	cmd.MarkPersistentFlagRequired("user")
 	cmd.MarkPersistentFlagRequired("peer")
 	cmd.MarkPersistentFlagRequired("config")

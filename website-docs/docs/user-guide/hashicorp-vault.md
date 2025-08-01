@@ -40,18 +40,182 @@ In this workshop, you will:
 6. **Deploy Chaincode** - Install and instantiate chaincode with secure credential management
 7. **Test the Network** - Verify the complete setup works end-to-end
 
-## Step 1: Install HashiCorp Vault
+## Getting started
 
-### Why This Step Matters
+# Tutorial
 
-Vault serves as the foundation for all cryptographic material management in your Hyperledger Fabric network. Installing it first ensures you have a secure, centralized location for storing certificates and private keys.
+Resources:
+- [Hyperledger Fabric build ARM](https://www.polarsparc.com/xhtml/Hyperledger-ARM-Build.html)
 
-### Installation Options
+## Create Kubernetes Cluster
 
-#### Option A: Using Docker (Recommended for Development)
+To start deploying our red fabric we have to have a Kubernetes cluster. For this we will use KinD.
+
+Ensure you have these ports available before creating the cluster:
+- 80
+- 443
+
+If these ports are not available this tutorial will not work.
+
+### Using K3D
 
 ```bash
-# Run HashiCorp Vault in development mode
+k3d cluster create  -p "80:30949@agent:0" -p "443:30950@agent:0" --agents 2 k8s-hlf
+```
+
+### Using KinD
+
+```bash
+cat << EOF > kind-config.yaml
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+- role: control-plane
+  image: kindest/node:v1.30.2
+  extraPortMappings:
+  - containerPort: 30949
+    hostPort: 80
+  - containerPort: 30950
+    hostPort: 443
+EOF
+
+kind create cluster --config=./kind-config.yaml
+
+```
+
+## Install Kubernetes operator
+
+In this step we are going to install the kubernetes operator for Fabric, this will install:
+
+- CRD (Custom Resource Definitions) to deploy Certification Fabric Peers, Orderers and Authorities
+- Deploy the program to deploy the nodes in Kubernetes
+
+To install helm: [https://helm.sh/docs/intro/install/](https://helm.sh/docs/intro/install/)
+
+```bash
+helm repo add kfs https://kfsoftware.github.io/hlf-helm-charts --force-update
+
+helm install hlf-operator --version=1.11.1 -- kfs/hlf-operator
+```
+
+
+### Install the Kubectl plugin
+
+To install the kubectl plugin, you must first install Krew:
+[https://krew.sigs.k8s.io/docs/user-guide/setup/install/](https://krew.sigs.k8s.io/docs/user-guide/setup/install/)
+
+Afterwards, the plugin can be installed with the following command:
+
+```bash
+kubectl krew install hlf
+```
+
+### Install Istio
+
+Install Istio binaries on the machine:
+```bash
+curl -L https://istio.io/downloadIstio | ISTIO_VERSION=1.23.3 sh -
+```
+
+Install Istio on the Kubernetes cluster:
+
+```bash
+
+kubectl create namespace istio-system
+
+export ISTIO_PATH=$(echo $PWD/istio-*/bin)
+export PATH="$PATH:$ISTIO_PATH"
+
+istioctl operator init
+
+kubectl apply -f - <<EOF
+apiVersion: install.istio.io/v1alpha1
+kind: IstioOperator
+metadata:
+  name: istio-gateway
+  namespace: istio-system
+spec:
+  addonComponents:
+    grafana:
+      enabled: false
+    kiali:
+      enabled: false
+    prometheus:
+      enabled: false
+    tracing:
+      enabled: false
+  components:
+    ingressGateways:
+      - enabled: true
+        k8s:
+          hpaSpec:
+            minReplicas: 1
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+          service:
+            ports:
+              - name: http
+                port: 80
+                targetPort: 8080
+                nodePort: 30949
+              - name: https
+                port: 443
+                targetPort: 8443
+                nodePort: 30950
+            type: NodePort
+        name: istio-ingressgateway
+    pilot:
+      enabled: true
+      k8s:
+        hpaSpec:
+          minReplicas: 1
+        resources:
+          limits:
+            cpu: 300m
+            memory: 512Mi
+          requests:
+            cpu: 100m
+            memory: 128Mi
+  meshConfig:
+    accessLogFile: /dev/stdout
+    enableTracing: false
+    outboundTrafficPolicy:
+      mode: ALLOW_ANY
+  profile: default
+
+EOF
+
+```
+
+
+## Install Vault
+
+
+Here's how to install Vault on Linux:
+```bash
+curl -fsSL https://apt.releases.hashicorp.com/gpg | sudo apt-key add -
+sudo apt-add-repository "deb [arch=amd64] https://apt.releases.hashicorp.com $(lsb_release -cs) main"
+sudo apt-get update && sudo apt-get install vault
+```
+
+Here's how to install Vault on MacOS:
+```bash
+brew tap hashicorp/tap
+brew install hashicorp/tap/vault
+```
+
+
+## Setup Vault server
+
+
+### With docker
+```bash
+# Run HashiCorp Vault in development mode (in-memory storage)
 docker run -d \
   --name vault-dev \
   -p 8200:8200 \
@@ -60,85 +224,47 @@ docker run -d \
   hashicorp/vault:latest
 ```
 
-#### Option B: Using Vault CLI
+### With the CLI 
+
+You'll need to run the following command and leave it running to start the Vault server:
 
 ```bash
-# Start Vault server in development mode
 vault server -dev -dev-root-token-id=my-dev-root-token -dev-listen-address=0.0.0.0:8200
 ```
 
-#### Option C: Production Installation
 
-For production environments, install Vault using your preferred method:
 
-**Linux:**
-```bash
-curl -fsSL https://apt.releases.hashicorp.com/gpg | sudo apt-key add -
-sudo apt-add-repository "deb [arch=amd64] https://apt.releases.hashicorp.com $(lsb_release -cs) main"
-sudo apt-get update && sudo apt-get install vault
-```
+## Deploy a `Peer` organization
 
-**macOS:**
-```bash
-brew tap hashicorp/tap
-brew install hashicorp/tap/vault
-```
-
-### Verify Vault Installation
+### Setup certificates for Org1MSP in Vault
 
 ```bash
-# Set environment variables
 export VAULT_ADDR='http://localhost:8200'
 export VAULT_TOKEN='my-dev-root-token'
 
-# Check Vault status
-vault status
-```
-
-You should see output indicating Vault is running and unsealed.
-
-## Step 2: Configure Vault for Hyperledger Fabric
-
-### Why This Step Matters
-
-Proper Vault configuration is crucial for managing Hyperledger Fabric's complex certificate hierarchy. This step sets up the PKI secrets engine and creates the necessary roles for different types of certificates (signing, TLS, client, admin).
-
-### Enable PKI Secrets Engine
-
-```bash
-# Enable PKI secrets engine for certificate management
+# Enable PKI secrets engine for peer organization
 vault secrets enable -path=pki pki
 
-# Configure PKI settings with extended TTL
+# Configure PKI settings
 vault secrets tune -max-lease-ttl=87600h pki
-```
 
-### Generate Root Certificates
-
-```bash
-# Generate root certificate for signing (identity certificates)
+# Generate root certificate for signing
 vault write pki/root/generate/internal \
-    common_name="Hyperledger Fabric Root Sign CA" \
+    common_name="Org1MSP Root Sign CA" \
     ttl=87600h \
     issuer_name="signing-ca" \
     key_type="ec" \
     key_bits=256
 
-# Generate TLS root certificate (for TLS connections)
+# Generate TLS root certificate 
 vault write pki/root/generate/internal \
-    common_name="Hyperledger Fabric TLS Root CA" \
+    common_name="Org1MSP TLS Root CA" \
     ttl=87600h \
     issuer_name="tls-ca" \
     key_type="ec" \
     key_bits=256
-```
 
-### Create Certificate Roles
-
-Create roles for different types of certificates used in Hyperledger Fabric:
-
-```bash
-# Signing certificate roles
+# Create roles for signing certificates
 vault write pki/roles/peer-sign \
     allow_subdomains=true \
     allow_any_name=true \
@@ -156,7 +282,7 @@ vault write pki/roles/orderer-sign \
     key_type="ec" \
     key_bits=256 \
     ou="orderer" \
-    organization="OrdererMSP" \
+    organization="Org1MSP" \
     issuer_ref="signing-ca"
 
 vault write pki/roles/client-sign \
@@ -179,7 +305,7 @@ vault write pki/roles/admin-sign \
     organization="Org1MSP" \
     issuer_ref="signing-ca"
 
-# TLS certificate roles
+# Create roles for TLS certificates
 vault write pki/roles/peer-tls \
     issuer_ref="tls-ca" \
     allow_subdomains=true \
@@ -198,7 +324,7 @@ vault write pki/roles/orderer-tls \
     key_type="ec" \
     key_bits=256 \
     ou="orderer" \
-    organization="OrdererMSP"
+    organization="Org1MSP"
 
 vault write pki/roles/client-tls \
     issuer_ref="tls-ca" \
@@ -219,119 +345,80 @@ vault write pki/roles/admin-tls \
     key_bits=256 \
     ou="admin" \
     organization="Org1MSP"
+
 ```
 
-### Verify PKI Configuration
+
+### Environment Variables
 
 ```bash
-# List enabled secrets engines
-vault secrets list
-
-# List PKI roles
-vault list pki/roles
-```
-
-## Step 3: Install and Configure Bevel Operator
-
-### Why This Step Matters
-
-The Bevel Operator is the Kubernetes-native way to manage Hyperledger Fabric networks. Configuring it to use Vault ensures all cryptographic materials are stored securely and managed centrally.
-
-### Install Bevel Operator
-
-```bash
-# Add the Helm repository
-helm repo add kfs https://kfsoftware.github.io/hlf-helm-charts --force-update
-
-# Install the operator
-helm install hlf-operator --version=1.11.1 kfs/hlf-operator
-```
-
-### Install kubectl Plugin
-
-```bash
-# Install Krew (kubectl plugin manager)
-# Follow instructions at: https://krew.sigs.k8s.io/docs/user-guide/setup/install/
-
-# Install the HLF plugin
-kubectl krew install hlf
-```
-
-### Create Vault Token Secret
-
-```bash
-# Create a Kubernetes secret with Vault token
-kubectl create secret generic vault-token \
-    --from-literal=token=my-dev-root-token
-```
-
-### Configure Environment Variables
-
-```bash
-# Set image versions
 export PEER_IMAGE=hyperledger/fabric-peer
 export PEER_VERSION=3.1.0
+
 export ORDERER_IMAGE=hyperledger/fabric-orderer
 export ORDERER_VERSION=3.1.0
-export CA_IMAGE=hyperledger/fabric-ca
-export CA_VERSION=1.5.15
 
-# Set Vault configuration
-export VAULT_ADDR="http://192.168.0.20:8200"  # Replace with your Vault address
-export SC_NAME=standard  # Use 'local-path' for K3D
 ```
 
-## Step 4: Deploy Certificate Authorities
-
-### Why This Step Matters
-
-Certificate Authorities (CAs) are the foundation of Hyperledger Fabric's identity management. Using Vault-backed CAs ensures that all certificates are generated, stored, and managed securely with proper audit trails.
-
-### Deploy Fabric CA with Vault Integration
+### Configure Internal DNS
 
 ```bash
-# Deploy CA for Org1
-kubectl hlf ca create \
-    --image=$CA_IMAGE \
-    --version=$CA_VERSION \
-    --storage-class=$SC_NAME \
-    --capacity=2Gi \
-    --name=org1-ca \
-    --hosts=ca-org1.localho.st \
-    --istio-port=443 \
-    --credential-store=vault \
-    --vault-address="$VAULT_ADDR" \
-    --vault-token-secret="vault-token" \
-    --vault-token-secret-namespace="default" \
-    --vault-token-secret-key="token" \
-    --vault-pki-path="pki" \
-    --vault-role="admin-sign" \
-    --vault-ttl="8760h"
-
-# Wait for CA to be ready
-kubectl wait --timeout=180s --for=condition=Running fabriccas.hlf.kungfusoftware.es --all
+kubectl apply -f - <<EOF
+kind: ConfigMap
+apiVersion: v1
+metadata:
+  name: coredns
+  namespace: kube-system
+data:
+  Corefile: |
+    .:53 {
+        errors
+        health {
+           lameduck 5s
+        }
+        rewrite name regex (.*)\.localho\.st istio-ingressgateway.istio-system.svc.cluster.local
+        hosts {
+          fallthrough
+        }
+        ready
+        kubernetes cluster.local in-addr.arpa ip6.arpa {
+           pods insecure
+           fallthrough in-addr.arpa ip6.arpa
+           ttl 30
+        }
+        prometheus :9153
+        forward . /etc/resolv.conf {
+           max_concurrent 1000
+        }
+        cache 30
+        loop
+        reload
+        loadbalance
+    }
+EOF
 ```
 
-### Verify CA Deployment
-
+### Configure Storage Class
+Set storage class depending on the Kubernetes cluster you are using:
 ```bash
-# Check CA status
-kubectl get fabriccas
-
-# Test CA connectivity
-openssl s_client -connect ca-org1.localho.st:443
+# for Kind
+export SC_NAME=standard
+# for K3D
+export SC_NAME=local-path
 ```
 
-## Step 5: Deploy Peer Organization
-
-### Why This Step Matters
-
-Peers are the core components that maintain the ledger and execute chaincode. Deploying them with Vault-managed certificates ensures secure communication and proper identity management.
-
-### Deploy Peer with Vault Integration
+### Create a secret for hashicorp vault
 
 ```bash
-# Deploy peer for Org1
+kubectl create secret generic vault-token --from-literal=token=my-dev-root-token
+```
+
+### Deploy a peer
+
+```bash
+# this needs to be accessible from the cluster
+export VAULT_ADDR="http://192.168.0.20:8200"
+
 kubectl hlf peer create \
     --statedb=leveldb \
     --image=$PEER_IMAGE \
@@ -360,34 +447,37 @@ kubectl hlf peer create \
     --tls-vault-role="peer-tls" \
     --tls-vault-ttl="8760h"
 
-# Wait for peer to be ready
+
 kubectl wait --timeout=180s --for=condition=Running fabricpeers.hlf.kungfusoftware.es --all
 ```
 
-### Verify Peer Deployment
+Check that the peer is deployed and works:
 
 ```bash
-# Check peer status
-kubectl get fabricpeers
-
-# Test peer connectivity
 openssl s_client -connect peer0-org1.localho.st:443
 ```
 
-## Step 6: Deploy Ordering Service
+## Deploy an `Orderer` organization
 
-### Why This Step Matters
+To deploy an `Orderer` organization we have to:
 
-The ordering service ensures transaction ordering and consensus across the network. Using Vault for orderer certificates maintains the security chain and provides centralized certificate management.
+1. Setup CAs in Vault
+2. Create orderer
 
-### Configure Orderer PKI in Vault
+### Setup CAs in Vault
 
 ```bash
-# Enable separate PKI for orderer organization
+export VAULT_ADDR='http://localhost:8200'
+export VAULT_TOKEN='my-dev-root-token'
+
+# Enable PKI secrets engine for orderer organization
 vault secrets enable -path=pki_orderer pki
+
+# Configure PKI settings
 vault secrets tune -max-lease-ttl=87600h pki_orderer
 
-# Generate orderer root certificates
+
+# Generate root certificate for signing
 vault write pki_orderer/root/generate/internal \
     common_name="OrdererMSP Signing Root CA" \
     ttl=87600h \
@@ -395,6 +485,7 @@ vault write pki_orderer/root/generate/internal \
     key_type="ec" \
     key_bits=256
 
+# Generate TLS root certificate 
 vault write pki_orderer/root/generate/internal \
     common_name="OrdererMSP TLS Root CA" \
     ttl=87600h \
@@ -402,7 +493,17 @@ vault write pki_orderer/root/generate/internal \
     key_type="ec" \
     key_bits=256
 
-# Create orderer certificate roles
+# Create roles for signing certificates
+vault write pki_orderer/roles/peer-sign \
+    allow_subdomains=true \
+    allow_any_name=true \
+    max_ttl="87600h" \
+    key_type="ec" \
+    key_bits=256 \
+    ou="peer" \
+    organization="OrdererMSP" \
+    issuer_ref="signing-ca"
+
 vault write pki_orderer/roles/orderer-sign \
     allow_subdomains=true \
     allow_any_name=true \
@@ -413,6 +514,37 @@ vault write pki_orderer/roles/orderer-sign \
     organization="OrdererMSP" \
     issuer_ref="signing-ca"
 
+vault write pki_orderer/roles/client-sign \
+    allow_subdomains=true \
+    allow_any_name=true \
+    max_ttl="87600h" \
+    key_type="ec" \
+    key_bits=256 \
+    ou="client" \
+    organization="OrdererMSP" \
+    issuer_ref="signing-ca"
+
+vault write pki_orderer/roles/admin-sign \
+    allow_subdomains=true \
+    allow_any_name=true \
+    max_ttl="87600h" \
+    key_type="ec" \
+    key_bits=256 \
+    ou="admin" \
+    organization="OrdererMSP" \
+    issuer_ref="signing-ca"
+
+# Create roles for TLS certificates
+vault write pki_orderer/roles/peer-tls \
+    issuer_ref="tls-ca" \
+    allow_subdomains=true \
+    allow_any_name=true \
+    max_ttl="87600h" \
+    key_type="ec" \
+    key_bits=256 \
+    ou="peer" \
+    organization="OrdererMSP"
+
 vault write pki_orderer/roles/orderer-tls \
     issuer_ref="tls-ca" \
     allow_subdomains=true \
@@ -422,70 +554,191 @@ vault write pki_orderer/roles/orderer-tls \
     key_bits=256 \
     ou="orderer" \
     organization="OrdererMSP"
+
+vault write pki_orderer/roles/client-tls \
+    issuer_ref="tls-ca" \
+    allow_subdomains=true \
+    allow_any_name=true \
+    max_ttl="87600h" \
+    key_type="ec" \
+    key_bits=256 \
+    ou="client" \
+    organization="OrdererMSP"
+
+vault write pki_orderer/roles/admin-tls \
+    issuer_ref="tls-ca" \
+    allow_subdomains=true \
+    allow_any_name=true \
+    max_ttl="87600h" \
+    key_type="ec" \
+    key_bits=256 \
+    ou="admin" \
+    organization="OrdererMSP"
+
+
 ```
 
-### Deploy Orderer Nodes
+### Deploy orderer
 
 ```bash
-# Deploy multiple orderer nodes for high availability
-for i in {0..3}; do
-    kubectl hlf ordnode create \
-        --credential-store=vault \
-        --image=$ORDERER_IMAGE \
-        --version=$ORDERER_VERSION \
-        --storage-class=$SC_NAME \
-        --enroll-id=orderer \
-        --mspid=OrdererMSP \
-        --enroll-pw=ordererpw \
-        --capacity=2Gi \
-        --name=ord-node$((i+1)) \
-        --hosts=orderer${i}-ord.localho.st \
-        --admin-hosts=admin-orderer${i}-ord.localho.st \
-        --istio-port=443 \
-        --vault-address="$VAULT_ADDR" \
-        --vault-token-secret="vault-token" \
-        --vault-token-secret-namespace="default" \
-        --vault-token-secret-key="token" \
-        --vault-pki-path="pki_orderer" \
-        --vault-role="orderer-sign" \
-        --vault-ttl="8760h" \
-        --tls-vault-address="$VAULT_ADDR" \
-        --tls-vault-token-secret="vault-token" \
-        --tls-vault-token-secret-namespace="default" \
-        --tls-vault-token-secret-key="token" \
-        --tls-vault-pki-path="pki_orderer" \
-        --tls-vault-role="orderer-tls" \
-        --tls-vault-ttl="8760h"
-done
 
-# Wait for orderers to be ready
+export VAULT_ADDR="http://192.168.0.20:8200"
+export VAULT_TOKEN_NAME="vault-token"
+export VAULT_TOKEN_NS="default"
+export VAULT_TOKEN_KEY="token"
+export VAULT_CA_PATH="pki_orderer"
+export VAULT_ROLE_SIGN="orderer-sign"
+export VAULT_ROLE_TLS="orderer-tls"
+
+
+export NODE_NUM=0
+kubectl hlf ordnode create \
+    --credential-store=vault \
+    --image=$ORDERER_IMAGE \
+    --version=$ORDERER_VERSION \
+    --storage-class=$SC_NAME \
+    --enroll-id=orderer \
+    --mspid=OrdererMSP \
+    --enroll-pw=ordererpw \
+    --capacity=2Gi \
+    --name=ord-node1 \
+    --hosts=orderer${NODE_NUM}-ord.localho.st \
+    --admin-hosts=admin-orderer${NODE_NUM}-ord.localho.st \
+    --istio-port=443 \
+    --vault-address="$VAULT_ADDR" \
+    --vault-token-secret="$VAULT_TOKEN_NAME" \
+    --vault-token-secret-namespace="$VAULT_TOKEN_NS" \
+    --vault-token-secret-key="$VAULT_TOKEN_KEY" \
+    --vault-pki-path="$VAULT_CA_PATH" \
+    --vault-role="$VAULT_ROLE_SIGN" \
+    --vault-ttl="8760h" \
+    --tls-vault-address="$VAULT_ADDR" \
+    --tls-vault-token-secret="$VAULT_TOKEN_NAME" \
+    --tls-vault-token-secret-namespace="$VAULT_TOKEN_NS" \
+    --tls-vault-token-secret-key="$VAULT_TOKEN_KEY" \
+    --tls-vault-pki-path="$VAULT_CA_PATH" \
+    --tls-vault-role="$VAULT_ROLE_TLS" \
+    --tls-vault-ttl="8760h"
+
+
+export NODE_NUM=1
+kubectl hlf ordnode create \
+    --credential-store=vault \
+    --image=$ORDERER_IMAGE \
+    --version=$ORDERER_VERSION \
+    --storage-class=$SC_NAME \
+    --enroll-id=orderer \
+    --mspid=OrdererMSP \
+    --enroll-pw=ordererpw \
+    --capacity=2Gi \
+    --name=ord-node2 \
+    --hosts=orderer${NODE_NUM}-ord.localho.st \
+    --admin-hosts=admin-orderer${NODE_NUM}-ord.localho.st \
+    --istio-port=443 \
+    --vault-address="$VAULT_ADDR" \
+    --vault-token-secret="$VAULT_TOKEN_NAME" \
+    --vault-token-secret-namespace="$VAULT_TOKEN_NS" \
+    --vault-token-secret-key="$VAULT_TOKEN_KEY" \
+    --vault-pki-path="$VAULT_CA_PATH" \
+    --vault-role="$VAULT_ROLE_SIGN" \
+    --vault-ttl="8760h" \
+    --tls-vault-address="$VAULT_ADDR" \
+    --tls-vault-token-secret="$VAULT_TOKEN_NAME" \
+    --tls-vault-token-secret-namespace="$VAULT_TOKEN_NS" \
+    --tls-vault-token-secret-key="$VAULT_TOKEN_KEY" \
+    --tls-vault-pki-path="$VAULT_CA_PATH" \
+    --tls-vault-role="$VAULT_ROLE_TLS" \
+    --tls-vault-ttl="8760h"
+
+
+export NODE_NUM=2
+kubectl hlf ordnode create \
+    --credential-store=vault \
+    --image=$ORDERER_IMAGE \
+    --version=$ORDERER_VERSION \
+    --storage-class=$SC_NAME \
+    --enroll-id=orderer \
+    --mspid=OrdererMSP \
+    --enroll-pw=ordererpw \
+    --capacity=2Gi \
+    --name=ord-node3 \
+    --hosts=orderer${NODE_NUM}-ord.localho.st \
+    --admin-hosts=admin-orderer${NODE_NUM}-ord.localho.st \
+    --istio-port=443 \
+    --vault-address="$VAULT_ADDR" \
+    --vault-token-secret="$VAULT_TOKEN_NAME" \
+    --vault-token-secret-namespace="$VAULT_TOKEN_NS" \
+    --vault-token-secret-key="$VAULT_TOKEN_KEY" \
+    --vault-pki-path="$VAULT_CA_PATH" \
+    --vault-role="$VAULT_ROLE_SIGN" \
+    --vault-ttl="8760h" \
+    --tls-vault-address="$VAULT_ADDR" \
+    --tls-vault-token-secret="$VAULT_TOKEN_NAME" \
+    --tls-vault-token-secret-namespace="$VAULT_TOKEN_NS" \
+    --tls-vault-token-secret-key="$VAULT_TOKEN_KEY" \
+    --tls-vault-pki-path="$VAULT_CA_PATH" \
+    --tls-vault-role="$VAULT_ROLE_TLS" \
+    --tls-vault-ttl="8760h"
+
+
+export NODE_NUM=3
+kubectl hlf ordnode create \
+    --credential-store=vault \
+    --image=$ORDERER_IMAGE \
+    --version=$ORDERER_VERSION \
+    --storage-class=$SC_NAME \
+    --enroll-id=orderer \
+    --mspid=OrdererMSP \
+    --enroll-pw=ordererpw \
+    --capacity=2Gi \
+    --name=ord-node4 \
+    --hosts=orderer${NODE_NUM}-ord.localho.st \
+    --admin-hosts=admin-orderer${NODE_NUM}-ord.localho.st \
+    --istio-port=443 \
+    --vault-address="$VAULT_ADDR" \
+    --vault-token-secret="$VAULT_TOKEN_NAME" \
+    --vault-token-secret-namespace="$VAULT_TOKEN_NS" \
+    --vault-token-secret-key="$VAULT_TOKEN_KEY" \
+    --vault-pki-path="$VAULT_CA_PATH" \
+    --vault-role="$VAULT_ROLE_SIGN" \
+    --vault-ttl="8760h" \
+    --tls-vault-address="$VAULT_ADDR" \
+    --tls-vault-token-secret="$VAULT_TOKEN_NAME" \
+    --tls-vault-token-secret-namespace="$VAULT_TOKEN_NS" \
+    --tls-vault-token-secret-key="$VAULT_TOKEN_KEY" \
+    --tls-vault-pki-path="$VAULT_CA_PATH" \
+    --tls-vault-role="$VAULT_ROLE_TLS" \
+    --tls-vault-ttl="8760h"
+
+
+
 kubectl wait --timeout=180s --for=condition=Running fabricorderernodes.hlf.kungfusoftware.es --all
 ```
 
-### Verify Orderer Deployment
+Check that the orderer is running:
 
 ```bash
-# Check orderer status
-kubectl get fabricorderernodes
-
-# Test orderer connectivity
-for i in {0..3}; do
-    openssl s_client -connect orderer${i}-ord.localho.st:443
-done
+kubectl get pods
 ```
 
-## Step 7: Create Network Identities
+```bash
+openssl s_client -connect orderer0-ord.localho.st:443
+openssl s_client -connect orderer1-ord.localho.st:443
+openssl s_client -connect orderer2-ord.localho.st:443
+openssl s_client -connect orderer3-ord.localho.st:443
+```
 
-### Why This Step Matters
 
-Network identities are required for channel management and chaincode operations. Creating these identities in Vault ensures they are securely stored and can be easily managed and rotated.
+## Create channel
 
-### Create Orderer Identities
+To create the channel we need to first create the wallet secret, which will contain the identities used by the operator to manage the channel
+
+### Register and enrolling OrdererMSP identity
 
 ```bash
-# Create orderer signing identity
+
 kubectl hlf identity create --name ord-ca-sign --namespace default \
-    --mspid OrdererMSP \
+    --mspid OrdererMSP  \
     --credential-store=vault \
     --vault-address="$VAULT_ADDR" \
     --vault-token-secret="vault-token" \
@@ -495,9 +748,8 @@ kubectl hlf identity create --name ord-ca-sign --namespace default \
     --vault-role="admin-sign" \
     --vault-ttl="8760h"
 
-# Create orderer TLS identity
 kubectl hlf identity create --name ord-ca-tls --namespace default \
-    --mspid OrdererMSP \
+    --mspid OrdererMSP  \
     --credential-store=vault \
     --vault-address="$VAULT_ADDR" \
     --vault-token-secret="vault-token" \
@@ -506,14 +758,16 @@ kubectl hlf identity create --name ord-ca-tls --namespace default \
     --vault-pki-path="pki_orderer" \
     --vault-role="admin-tls" \
     --vault-ttl="8760h"
+
 ```
 
-### Create Peer Organization Identity
+
+### Register and enrolling Org1MSP identity
 
 ```bash
-# Create peer admin identity
+# enroll
 kubectl hlf identity create --name org1-admin --namespace default \
-    --mspid Org1MSP \
+    --mspid Org1MSP  \
     --credential-store=vault \
     --vault-address="$VAULT_ADDR" \
     --vault-token-secret="vault-token" \
@@ -522,36 +776,26 @@ kubectl hlf identity create --name org1-admin --namespace default \
     --vault-pki-path="pki" \
     --vault-role="admin-sign" \
     --vault-ttl="8760h"
+
 ```
 
-## Step 8: Create Channel
-
-### Why This Step Matters
-
-Channels provide private communication between organizations in Hyperledger Fabric. Creating channels with Vault-managed identities ensures secure channel operations and proper access control.
-
-### Extract Certificates for Channel Configuration
+### Create main channel
 
 ```bash
-# Get peer organization certificates
+
 export PEER_ORG_SIGN_CERT=$(vault read pki/issuer/signing-ca --format=json | jq -r '.data.certificate' | sed -e "s/^/${IDENT_8}/" )
 export PEER_ORG_TLS_CERT=$(vault read pki/issuer/tls-ca --format=json | jq -r '.data.certificate' | sed -e "s/^/${IDENT_8}/" )
 
-# Get orderer organization certificates
 export IDENT_8=$(printf "%8s" "")
 export ORDERER_TLS_CERT=$(vault read pki_orderer/issuer/tls-ca --format=json | jq -r '.data.certificate' | sed -e "s/^/${IDENT_8}/" )
 export ORDERER_SIGN_CERT=$(vault read pki_orderer/issuer/signing-ca --format=json | jq -r '.data.certificate' | sed -e "s/^/${IDENT_8}/" )
 
-# Get orderer node certificates
+
 export ORDERER0_TLS_CERT=$(kubectl get fabricorderernodes ord-node1 -o=jsonpath='{.status.tlsCert}' | sed -e "s/^/${IDENT_8}/" )
 export ORDERER1_TLS_CERT=$(kubectl get fabricorderernodes ord-node2 -o=jsonpath='{.status.tlsCert}' | sed -e "s/^/${IDENT_8}/" )
 export ORDERER2_TLS_CERT=$(kubectl get fabricorderernodes ord-node3 -o=jsonpath='{.status.tlsCert}' | sed -e "s/^/${IDENT_8}/" )
 export ORDERER3_TLS_CERT=$(kubectl get fabricorderernodes ord-node4 -o=jsonpath='{.status.tlsCert}' | sed -e "s/^/${IDENT_8}/" )
-```
 
-### Create Main Channel
-
-```bash
 kubectl apply -f - <<EOF
 apiVersion: hlf.kungfusoftware.es/v1alpha1
 kind: FabricMainChannel
@@ -599,6 +843,7 @@ spec:
 ${PEER_ORG_SIGN_CERT}
       tlsCACert: |
 ${PEER_ORG_TLS_CERT}
+
   identities:
     OrdererMSP-tls:
       secretKey: user.yaml
@@ -612,6 +857,7 @@ ${PEER_ORG_TLS_CERT}
       secretKey: user.yaml
       secretName: org1-admin
       secretNamespace: default
+
   ordererOrganizations:
     - externalOrderersToJoin:
         - host: ord-node1.default
@@ -650,12 +896,18 @@ ${ORDERER2_TLS_CERT}
       port: 443
       tlsCert: |-
 ${ORDERER3_TLS_CERT}
+
 EOF
+
 ```
 
-### Join Peer to Channel
+## Join peer to the channel
 
 ```bash
+
+export IDENT_8=$(printf "%8s" "")
+export ORDERER0_TLS_CERT=$(kubectl get fabricorderernodes ord-node1 -o=jsonpath='{.status.tlsCert}' | sed -e "s/^/${IDENT_8}/" )
+
 kubectl apply -f - <<EOF
 apiVersion: hlf.kungfusoftware.es/v1alpha1
 kind: FabricFollowerChannel
@@ -680,76 +932,76 @@ ${ORDERER0_TLS_CERT}
     - name: org1-peer0
       namespace: default
 EOF
+
+
 ```
 
-## Step 9: Deploy and Test Chaincode
+## Install a chaincode
 
-### Why This Step Matters
+### Prepare connection string for a peer
 
-Chaincode is the business logic that runs on the blockchain. Deploying it with Vault-managed credentials ensures secure chaincode operations and proper access control.
+To prepare the connection string, we have to:
 
-### Create Network Configuration
+1. Create network config connection string for organization Org1MSP and OrdererMSP
+2. Get the network config from the cluster
+
+
+1. Register a user in the certification authority for signing
 
 ```bash
-# Create network config for chaincode operations
 kubectl hlf networkconfig create --name=org1-cp \
   -o Org1MSP -o OrdererMSP -c demo \
-  --identities=org1-admin.default --secret=org1-cp
-
-# Extract configuration
-kubectl get secret org1-cp -o jsonpath="{.data.config\.yaml}" | base64 --decode > org1.yaml
+  --identities=org1-admin.default --secret=org1-cp  
 ```
 
-### Prepare Chaincode Package
+1. Get the certificates using the user created above
+```bash
+kubectl get secret org1-cp -o jsonpath="{.data.config\.yaml}" | base64 --decode > org1.yaml
+
+```
+
+### Create metadata file
 
 ```bash
-# Set chaincode parameters
+# remove the code.tar.gz chaincode.tgz if they exist
+rm code.tar.gz chaincode.tgz
 export CHAINCODE_NAME=asset
 export CHAINCODE_LABEL=asset
-
-# Create metadata
-cat << EOF > "metadata.json"
+cat << METADATA-EOF > "metadata.json"
 {
     "type": "ccaas",
     "label": "${CHAINCODE_LABEL}"
 }
-EOF
+METADATA-EOF
+## chaincode as a service
+```
 
-# Create connection configuration
-cat > "connection.json" << EOF
+### Prepare connection file
+
+```bash
+cat > "connection.json" <<CONN_EOF
 {
   "address": "${CHAINCODE_NAME}:7052",
   "dial_timeout": "10s",
   "tls_required": false
 }
-EOF
+CONN_EOF
 
-# Package chaincode
 tar cfz code.tar.gz connection.json
 tar cfz chaincode.tgz metadata.json code.tar.gz
-
-# Calculate package ID
 export PACKAGE_ID=$(kubectl hlf chaincode calculatepackageid --path=chaincode.tgz --language=node --label=$CHAINCODE_LABEL)
 echo "PACKAGE_ID=$PACKAGE_ID"
-```
 
-### Install Chaincode
-
-```bash
-# Install chaincode on peer
 kubectl hlf chaincode install --path=./chaincode.tgz \
-    --config=org1.yaml --language=golang --label=$CHAINCODE_LABEL \
-    --user=org1-admin-default --peer=org1-peer0.default
+    --config=org1.yaml --language=golang --label=$CHAINCODE_LABEL --user=org1-admin-default --peer=org1-peer0.default
 
-# Verify installation
-kubectl hlf chaincode queryinstalled --config=org1.yaml \
-    --user=org1-admin-default --peer=org1-peer0.default
 ```
 
-### Deploy External Chaincode
+
+## Deploy chaincode container on cluster
+The following command will create or update the CRD based on the packageID, chaincode name, and docker image.
 
 ```bash
-# Deploy chaincode container
 kubectl hlf externalchaincode sync --image=kfsoftware/chaincode-external:latest \
     --name=$CHAINCODE_NAME \
     --namespace=default \
@@ -758,171 +1010,86 @@ kubectl hlf externalchaincode sync --image=kfsoftware/chaincode-external:latest 
     --replicas=1
 ```
 
-### Approve and Commit Chaincode
 
+## Check installed chaincodes
 ```bash
-# Approve chaincode for organization
+kubectl hlf chaincode queryinstalled --config=org1.yaml --user=org1-admin-default --peer=org1-peer0.default
+```
+
+## Approve chaincode
+```bash
 export SEQUENCE=1
 export VERSION="1.0"
-kubectl hlf chaincode approveformyorg --config=org1.yaml \
-    --user=org1-admin-default --peer=org1-peer0.default \
+kubectl hlf chaincode approveformyorg --config=org1.yaml --user=org1-admin-default --peer=org1-peer0.default \
     --package-id=$PACKAGE_ID \
     --version "$VERSION" --sequence "$SEQUENCE" --name=asset \
     --policy="OR('Org1MSP.member')" --channel=demo
 
-# Commit chaincode to channel
-kubectl hlf chaincode commit --config=org1.yaml \
-    --user=org1-admin-default --mspid=Org1MSP \
+```
+
+## Commit chaincode
+```bash
+kubectl hlf chaincode commit --config=org1.yaml --user=org1-admin-default --mspid=Org1MSP \
     --version "$VERSION" --sequence "$SEQUENCE" --name=asset \
     --policy="OR('Org1MSP.member')" --channel=demo
 ```
 
-## Step 10: Test the Complete Network
 
-### Why This Step Matters
-
-Testing the complete network ensures that all components work together correctly and that Vault integration is functioning properly across the entire system.
-
-### Initialize Chaincode
+## Invoke a transaction on the channel
 
 ```bash
-# Initialize the ledger
 kubectl hlf chaincode invoke --config=org1.yaml \
     --user=org1-admin-default --peer=org1-peer0.default \
     --chaincode=asset --channel=demo \
     --fcn=initLedger -a '[]'
 ```
 
-### Query Data
+## Query assets in the channel
 
 ```bash
-# Query all assets
 kubectl hlf chaincode query --config=org1.yaml \
     --user=org1-admin-default --peer=org1-peer0.default \
     --chaincode=asset --channel=demo \
     --fcn=GetAllAssets -a '[]'
 ```
 
-### Verify Vault Integration
+
+At this point, you should have:
+
+- Ordering service with 1 nodes and a CA
+- Peer organization with a peer and a CA
+- A channel **demo**
+- A chaincode install in peer0
+- A chaincode approved and committed
+
+If something went wrong or didn't work, please, open an issue.
+
+
+## Cleanup the environment
 
 ```bash
-# Check Vault audit logs
-vault audit list
-
-# List certificates in Vault
-vault list pki/roles
-
-# Check certificate issuance
-vault read pki/issuer/signing-ca
-```
-
-## Step 11: Monitor and Maintain
-
-### Why This Step Matters
-
-Ongoing monitoring and maintenance ensure the network remains secure and operational. Vault provides tools for certificate lifecycle management and audit compliance.
-
-### Monitor Vault Metrics
-
-```bash
-# Check Vault status
-vault status
-
-# Monitor secret access
-vault audit list
-
-# Check certificate expiration
-vault read pki/issuer/signing-ca
-```
-
-### Certificate Renewal
-
-```bash
-# Vault automatically manages certificate renewal based on TTL
-# Check certificate TTL
-vault read pki/issuer/signing-ca --format=json | jq '.data.ttl'
-```
-
-### Backup and Recovery
-
-```bash
-# Backup Vault data (for production)
-vault operator raft snapshot save backup.snap
-
-# List backup snapshots
-vault operator raft snapshot list
-```
-
-## Cleanup
-
-When you're done testing, clean up the environment:
-
-```bash
-# Delete all Fabric resources
 kubectl delete fabricorderernodes.hlf.kungfusoftware.es --all-namespaces --all
 kubectl delete fabricpeers.hlf.kungfusoftware.es --all-namespaces --all
 kubectl delete fabriccas.hlf.kungfusoftware.es --all-namespaces --all
 kubectl delete fabricchaincode.hlf.kungfusoftware.es --all-namespaces --all
 kubectl delete fabricmainchannels --all-namespaces --all
 kubectl delete fabricfollowerchannels --all-namespaces --all
-
-# Stop Vault (if using Docker)
-docker stop vault-dev
-docker rm vault-dev
 ```
 
 ## Troubleshooting
 
-### Common Issues and Solutions
+### Chaincode installation/build error
 
-1. **Vault Connection Issues**
-   - Verify `VAULT_ADDR` is accessible from Kubernetes cluster
-   - Check Vault token is valid and has proper permissions
-   - Ensure Vault is unsealed and running
+Chaincode installation/build can fail due to unsupported local kubertenes version such as [minikube](https://github.com/kubernetes/minikube).
 
-2. **Certificate Generation Failures**
-   - Verify PKI secrets engine is properly configured
-   - Check certificate roles have correct permissions
-   - Ensure proper TTL settings
+```shell
+$ kubectl hlf chaincode install --path=./fixtures/chaincodes/fabcar/go \
+        --config=org1.yaml --language=golang --label=fabcar --user=org1-admin-default --peer=org1-peer0.default
 
-3. **Kubernetes Authentication Issues**
-   - Verify service account configuration
-   - Check Vault Kubernetes auth method setup
-   - Ensure proper policy assignments
-
-### Debug Commands
-
-```bash
-# Check Vault status
-vault status
-
-# List secrets engines
-vault secrets list
-
-# Check authentication methods
-vault auth list
-
-# View audit logs
-vault audit list
-
-# Check Kubernetes resources
-kubectl get all -l app.kubernetes.io/name=hlf-operator
+Error: Transaction processing for endorser [192.168.49.2:31278]: Chaincode status Code: (500) UNKNOWN.
+Description: failed to invoke backing implementation of 'InstallChaincode': could not build chaincode:
+external builder failed: external builder failed to build: external builder 'my-golang-builder' failed:
+exit status 1
 ```
 
-## Next Steps
-
-Congratulations! You've successfully deployed a Hyperledger Fabric network with HashiCorp Vault integration. Here are some next steps to consider:
-
-1. **Production Hardening**: Configure Vault clustering, auto-unseal, and high availability
-2. **Multi-Organization Setup**: Add additional peer organizations with their own Vault PKI paths
-3. **Advanced Security**: Implement Vault policies, response wrapping, and time-based access
-4. **Monitoring**: Set up comprehensive monitoring and alerting for both Fabric and Vault
-5. **Backup Strategy**: Implement automated backup and disaster recovery procedures
-
-## Additional Resources
-
-- [HashiCorp Vault Documentation](https://www.vaultproject.io/docs)
-- [Vault Kubernetes Integration](https://www.vaultproject.io/docs/platform/k8s)
-- [Bevel Operator Documentation](../operator-guide/configuration.md)
-- [Hyperledger Fabric Documentation](https://hyperledger-fabric.readthedocs.io/)
-- [Hyperledger Discord Community](https://discord.com/invite/hyperledger) 
+If your purpose is to test the hlf-operator please consider to switch to [kind](https://github.com/kubernetes-sigs/kind) that is tested and supported.

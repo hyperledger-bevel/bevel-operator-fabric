@@ -75,6 +75,7 @@ func main() {
 	var autoRenewCertificatesPeerEnabled bool
 	var autoRenewCertificatesOrdererEnabled bool
 	var autoRenewCertificatesIdentityEnabled bool
+	var peerRenewCertificatesReenroll bool
 	var autoRenewOrdererCertificatesDelta time.Duration
 	var autoRenewPeerCertificatesDelta time.Duration
 	var autoRenewIdentityCertificatesDelta time.Duration
@@ -89,6 +90,7 @@ func main() {
 	flag.BoolVar(&autoRenewCertificatesPeerEnabled, "auto-renew-peer-certificates", false, "Enable auto renew certificates for orderer and peer nodes. Default is false.")
 	flag.BoolVar(&autoRenewCertificatesOrdererEnabled, "auto-renew-orderer-certificates", false, "Enable auto renew certificates for orderer and peer nodes. Default is false.")
 	flag.BoolVar(&autoRenewCertificatesIdentityEnabled, "auto-renew-identity-certificates", true, "Enable auto renew certificates for FabricIdentity. Default is true.")
+	flag.BoolVar(&peerRenewCertificatesReenroll, "peer-renew-certificates-reenroll", true, "Use reenroll when renewing peer certificates. If false, generates new keypairs. Default is true.")
 	flag.IntVar(&maxReconciles, "max-reconciles", 10, "Max reconciles for a resource. Default is 10.")
 	flag.BoolVar(&helmChartWait, "helm-chart-wait", false, "Wait for helm chart to be deployed. Default is false.")
 	flag.IntVar(&maxHistory, "helm-max-history", 10, "Max history for helm chart. Default is 10.")
@@ -102,6 +104,7 @@ func main() {
 	log.Infof("Auto renew peer certificates enabled: %t", autoRenewCertificatesPeerEnabled)
 	log.Infof("Auto renew orderer certificates enabled: %t", autoRenewCertificatesOrdererEnabled)
 	log.Infof("Auto renew identity certificates enabled: %t", autoRenewCertificatesIdentityEnabled)
+	log.Infof("Peer renew certificates reenroll: %t", peerRenewCertificatesReenroll)
 	log.Infof("Auto renew peer certificates delta: %s", autoRenewPeerCertificatesDelta)
 	log.Infof("Auto renew orderer certificates delta: %s", autoRenewOrdererCertificatesDelta)
 	log.Infof("Auto renew identity certificates delta: %s", autoRenewIdentityCertificatesDelta)
@@ -158,6 +161,7 @@ func main() {
 		Config:                     mgr.GetConfig(),
 		AutoRenewCertificates:      autoRenewCertificatesPeerEnabled,
 		AutoRenewCertificatesDelta: autoRenewPeerCertificatesDelta,
+		RenewCertificatesReenroll:  peerRenewCertificatesReenroll,
 		Wait:                       helmChartWait,
 		Timeout:                    helmChartTimeout,
 		MaxHistory:                 maxHistory,

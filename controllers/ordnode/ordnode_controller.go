@@ -1555,6 +1555,7 @@ func getEnrollRequestForFabricCATLS(client *kubernetes.Clientset, enrollment *hl
 		Name:       enrollment.Caname,
 		MSPID:      spec.MspID,
 		TLSCert:    string(cacert),
+		Profile:    profile,
 	}, nil
 }
 
@@ -1634,6 +1635,7 @@ func getReenrollRequestForFabricCATLS(client *kubernetes.Clientset, enrollment *
 	return certs.ReenrollUserRequest{
 		TLSCert:  string(cacert),
 		Hosts:    hosts,
+		Profile:  profile,
 		CN:       "",
 		URL:      tlsCAUrl,
 		Name:     enrollment.Caname,

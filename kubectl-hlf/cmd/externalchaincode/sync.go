@@ -180,7 +180,7 @@ func (c *syncExternalChaincodeCmd) updateChaincode(ctx context.Context, fabricCh
 		return err
 	}
 	fabricChaincode.Spec.Image = fabricChaincodeSpec.Image
-	fabricChaincode.Spec.ImagePullPolicy = fabricChaincodeSpec.ImagePullPolicy
+	fabricChaincode.Spec.ImagePullPolicy = corev1.PullAlways
 	fabricChaincode.Spec.Replicas = fabricChaincodeSpec.Replicas
 	fabricChaincode.Spec.PackageID = fabricChaincodeSpec.PackageID
 	fabricChaincode.Spec.ImagePullSecrets = fabricChaincodeSpec.ImagePullSecrets

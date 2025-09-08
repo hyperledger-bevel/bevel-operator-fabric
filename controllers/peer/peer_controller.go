@@ -61,6 +61,7 @@ type FabricPeerReconciler struct {
 	Config                     *rest.Config
 	AutoRenewCertificates      bool
 	AutoRenewCertificatesDelta time.Duration
+	RenewCertificatesReenroll  bool
 	Wait                       bool
 	Timeout                    time.Duration
 	MaxHistory                 int
@@ -519,7 +520,7 @@ func (r *FabricPeerReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			log.Infof("Peer certs updated, last time updated: %v", lastTimeCertsRenewed)
 			requeueAfter = time.Minute * 5
 		} else {
-			c, err := GetConfig(fabricPeer, clientSet, releaseName, req.Namespace, svc, false)
+			c, err := GetConfig(fabricPeer, clientSet, releaseName, req.Namespace, svc, false, r.RenewCertificatesReenroll)
 			if err != nil {
 				r.setConditionStatus(ctx, fabricPeer, hlfv1alpha1.FailedStatus, false, err, false)
 				return r.updateCRStatusOrFailReconcile(ctx, r.Log, fabricPeer)
@@ -607,6 +608,7 @@ func (r *FabricPeerReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			req.Namespace,
 			svc,
 			false,
+			r.RenewCertificatesReenroll,
 		)
 		if err != nil {
 			r.setConditionStatus(ctx, fabricPeer, hlfv1alpha1.FailedStatus, false, err, false)
@@ -655,7 +657,7 @@ func (r *FabricPeerReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 func (r *FabricPeerReconciler) updateCerts(req ctrl.Request, fPeer *hlfv1alpha1.FabricPeer, clientSet *kubernetes.Clientset, releaseName string, svc *corev1.Service, ctx context.Context, cfg *action.Configuration, ns string) error {
 	log.Infof("Trying to upgrade certs")
 	r.setConditionStatus(ctx, fPeer, hlfv1alpha1.UpdatingCertificates, false, nil, false)
-	config, err := GetConfig(fPeer, clientSet, releaseName, req.Namespace, svc, true)
+	config, err := GetConfig(fPeer, clientSet, releaseName, req.Namespace, svc, true, r.RenewCertificatesReenroll)
 	if err != nil {
 		log.Errorf("Error getting the config: %v", err)
 		return err
@@ -891,6 +893,7 @@ func getEnrollRequestForFabricCATLS(client *kubernetes.Clientset, enrollment *hl
 		User:       enrollment.Enrollid,
 		Secret:     enrollment.Enrollsecret,
 		URL:        tlsCAUrl,
+		Profile:    profile,
 		Name:       enrollment.Caname,
 		MSPID:      conf.Spec.MspID,
 		TLSCert:    string(cacert),
@@ -1038,11 +1041,13 @@ func getReenrollRequestForFabricCATLS(client *kubernetes.Clientset, enrollment *
 	var hosts []string
 	hosts = append(hosts, tlsParams.Csr.Hosts...)
 	hosts = append(hosts, ingressHosts...)
+
 	tlsCAUrl := fmt.Sprintf("https://%s:%d", enrollment.Cahost, enrollment.Caport)
 	return certs.ReenrollUserRequest{
 		TLSCert:  string(cacert),
 		Hosts:    hosts,
 		CN:       "",
+		Profile:  profile,
 		URL:      tlsCAUrl,
 		Name:     enrollment.Caname,
 		EnrollID: enrollment.Enrollid,
@@ -1182,6 +1187,7 @@ func GetConfig(
 	namespace string,
 	svc *corev1.Service,
 	refreshCerts bool,
+	renewCertificatesReenroll bool,
 ) (*FabricPeerChart, error) {
 	spec := conf.Spec
 	tlsParams := conf.Spec.Secret.Enrollment.TLS
@@ -1227,24 +1233,37 @@ func GetConfig(
 			}
 			log.Infof("Successfully enrolled tls crypto material for %s", chartName)
 		} else {
-			tlsCert, tlsKey, tlsRootCert, err = ReenrollTLSCryptoMaterial(
-				conf,
-				client,
-				&tlsParams,
-				string(utils.EncodeX509Certificate(tlsCert)),
-				tlsKey,
-			)
-			authenticationFailure := false
-			if err != nil {
-				if strings.Contains(err.Error(), "Authentication failure") {
-					authenticationFailure = true
-				} else {
-					return nil, errors.Wrapf(err, "failed to reenroll tls crypto material")
+			if renewCertificatesReenroll {
+				tlsCert, tlsKey, tlsRootCert, err = ReenrollTLSCryptoMaterial(
+					conf,
+					client,
+					&tlsParams,
+					string(utils.EncodeX509Certificate(tlsCert)),
+					tlsKey,
+				)
+				authenticationFailure := false
+				if err != nil {
+					if strings.Contains(err.Error(), "Authentication failure") {
+						authenticationFailure = true
+					} else {
+						return nil, errors.Wrapf(err, "failed to reenroll tls crypto material")
+					}
 				}
-			}
-			if authenticationFailure {
-				log.Infof("Re enroll failed because of credentials, falling back to enroll")
-				// just enroll the user
+				if authenticationFailure {
+					log.Infof("Re enroll failed because of credentials, falling back to enroll")
+					// just enroll the user
+					tlsCert, tlsKey, tlsRootCert, err = CreateTLSCryptoMaterial(
+						client,
+						conf,
+						&tlsParams,
+					)
+					if err != nil {
+						return nil, err
+					}
+				}
+				log.Infof("Successfully reenrolled tls crypto material for %s", chartName)
+			} else {
+				log.Infof("Enrolling new tls crypto material for %s (reenroll disabled)", chartName)
 				tlsCert, tlsKey, tlsRootCert, err = CreateTLSCryptoMaterial(
 					client,
 					conf,
@@ -1253,8 +1272,8 @@ func GetConfig(
 				if err != nil {
 					return nil, err
 				}
+				log.Infof("Successfully enrolled new tls crypto material for %s", chartName)
 			}
-			log.Infof("Successfully reenrolled tls crypto material for %s", chartName)
 		}
 		log.Infof("Successfully reenrolled tls crypto material for %s", chartName)
 	} else {
@@ -1328,25 +1347,38 @@ func GetConfig(
 			}
 			log.Infof("Enrolled sign crypto material")
 		} else {
-			log.Infof("Renewing certificates using reenroll")
-			signCert, signKey, signRootCert, err = ReenrollSignCryptoMaterial(
-				conf,
-				client,
-				&signParams,
-				string(signCertPem),
-				signKey,
-			)
-			authenticationFailure := false
-			if err != nil {
-				if strings.Contains(err.Error(), "Authentication failure") {
-					authenticationFailure = true
-				} else {
-					return nil, errors.Wrapf(err, "failed to reenroll sign crypto material")
+			if renewCertificatesReenroll {
+				log.Infof("Renewing certificates using reenroll")
+				signCert, signKey, signRootCert, err = ReenrollSignCryptoMaterial(
+					conf,
+					client,
+					&signParams,
+					string(signCertPem),
+					signKey,
+				)
+				authenticationFailure := false
+				if err != nil {
+					if strings.Contains(err.Error(), "Authentication failure") {
+						authenticationFailure = true
+					} else {
+						return nil, errors.Wrapf(err, "failed to reenroll sign crypto material")
+					}
 				}
-			}
-			if authenticationFailure {
-				log.Infof("Re enroll failed because of credentials, falling back to enroll")
-				// just enroll the user
+				if authenticationFailure {
+					log.Infof("Re enroll failed because of credentials, falling back to enroll")
+					// just enroll the user
+					signCert, signKey, signRootCert, err = CreateSignCryptoMaterial(
+						client,
+						conf,
+						&signParams,
+					)
+					if err != nil {
+						return nil, err
+					}
+				}
+				log.Infof("Reenrolled sign crypto material")
+			} else {
+				log.Infof("Enrolling new sign crypto material (reenroll disabled)")
 				signCert, signKey, signRootCert, err = CreateSignCryptoMaterial(
 					client,
 					conf,
@@ -1355,8 +1387,8 @@ func GetConfig(
 				if err != nil {
 					return nil, err
 				}
+				log.Infof("Enrolled new sign crypto material")
 			}
-			log.Infof("Reenrolled sign crypto material")
 		}
 		log.Infof("Reenrolled sign crypto material")
 	} else {

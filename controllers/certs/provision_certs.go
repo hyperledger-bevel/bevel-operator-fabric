@@ -377,26 +377,37 @@ func GetClient(ca FabricCAParams) (*lib.Client, error) {
 	if err != nil {
 		return nil, nil
 	}
-	// create temporary file
-	caCertFile, err := ioutil.TempFile("", "ca-cert")
-	if err != nil {
-		return nil, nil
-	}
-	// write ca cert to file
-	_, err = caCertFile.Write([]byte(ca.TLSCert))
-	if err != nil {
-		return nil, nil
-	}
+	
 	client := &lib.Client{
 		HomeDir: caHomeDir,
 		Config: &lib.ClientConfig{
 			URL: ca.URL,
-			TLS: tls.ClientTLSConfig{
-				Enabled:   true,
-				CertFiles: []string{caCertFile.Name()},
-			},
 		},
 	}
+	
+	// Only configure TLS if TLS certificate is provided
+	if ca.TLSCert != "" {
+		// create temporary file
+		caCertFile, err := ioutil.TempFile("", "ca-cert")
+		if err != nil {
+			return nil, nil
+		}
+		// write ca cert to file
+		_, err = caCertFile.Write([]byte(ca.TLSCert))
+		if err != nil {
+			return nil, nil
+		}
+		client.Config.TLS = tls.ClientTLSConfig{
+			Enabled:   true,
+			CertFiles: []string{caCertFile.Name()},
+		}
+	} else {
+		// Disable TLS for HTTP connections
+		client.Config.TLS = tls.ClientTLSConfig{
+			Enabled: false,
+		}
+	}
+	
 	err = client.Init()
 	if err != nil {
 		return nil, err

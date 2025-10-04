@@ -388,6 +388,11 @@ func ReenrollUser(clientSet *kubernetes.Clientset, spec *hlfv1alpha1.VaultSpecCo
 		csrData["common_name"] = params.CN
 	}
 
+	// Add TTL if specified in the request
+	if request.TTL != "" {
+		csrData["ttl"] = request.TTL
+	}
+
 	// Request certificate from Vault PKI using existing key
 	secret, err := vaultClient.Write(
 		context.Background(),
@@ -472,6 +477,11 @@ func EnrollUser(clientSet *kubernetes.Clientset, vaultConf *hlfv1alpha1.VaultSpe
 		"common_name":         commonName,
 		"use_csr_common_name": true,
 		"use_csr_sans":        true,
+	}
+
+	// Add TTL if specified in the request
+	if request.TTL != "" {
+		csrData["ttl"] = request.TTL
 	}
 
 	// Request certificate from Vault PKI using the CSR

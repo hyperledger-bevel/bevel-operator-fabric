@@ -2,7 +2,13 @@ package channel
 
 import (
 	"context"
+	"crypto/x509"
 	"fmt"
+	"io"
+	"os"
+	"strings"
+	"time"
+
 	"github.com/golang/protobuf/proto"
 	"github.com/hyperledger/fabric-config/configtx/orderer"
 	"github.com/kfsoftware/hlf-operator/controllers/testutils"
@@ -12,10 +18,6 @@ import (
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
-	"io"
-	"io/ioutil"
-	"strings"
-	"time"
 )
 
 type generateChannelCmd struct {
@@ -119,23 +121,41 @@ func (c generateChannelCmd) run() error {
 	var ordererOrgs []testutils.OrdererOrg
 	for mspID, orderers := range ordererMap {
 		orderer := orderers[0]
-		cahost := orderer.Spec.Secret.Enrollment.Component.Cahost
-		certAuth, err := helpers.GetCertAuthByURL(
-			clientSet,
-			oclient,
-			cahost,
-			orderer.Spec.Secret.Enrollment.Component.Caport,
-		)
-		if err != nil {
-			return err
-		}
-		tlsCert, err := utils.ParseX509Certificate([]byte(certAuth.Status.TLSCACert))
-		if err != nil {
-			return err
-		}
-		signCert, err := utils.ParseX509Certificate([]byte(certAuth.Status.CACert))
-		if err != nil {
-			return err
+
+		var tlsCert, signCert *x509.Certificate
+		var err error
+
+		// Check credential store type and get certificates accordingly
+		if orderer.Spec.CredentialStore == hlfv1alpha1.CredentialStoreVault {
+			// For Vault credential store, get certificates from orderer status
+			tlsCert, err = utils.ParseX509Certificate([]byte(orderer.Status.TlsCACert))
+			if err != nil {
+				return errors.Wrapf(err, "failed to parse TLS CA certificate for orderer %s", orderer.Item.Name)
+			}
+			signCert, err = utils.ParseX509Certificate([]byte(orderer.Status.SignCACert))
+			if err != nil {
+				return errors.Wrapf(err, "failed to parse Sign CA certificate for orderer %s", orderer.Item.Name)
+			}
+		} else {
+			// For Kubernetes credential store, get certificates from CA component
+			cahost := orderer.Spec.Secret.Enrollment.Component.Cahost
+			certAuth, err := helpers.GetCertAuthByURL(
+				clientSet,
+				oclient,
+				cahost,
+				orderer.Spec.Secret.Enrollment.Component.Caport,
+			)
+			if err != nil {
+				return errors.Wrapf(err, "failed to get certificate authority for orderer %s", orderer.Item.Name)
+			}
+			tlsCert, err = utils.ParseX509Certificate([]byte(certAuth.Status.TLSCACert))
+			if err != nil {
+				return errors.Wrapf(err, "failed to parse TLS CA certificate from CA %s", certAuth.Name)
+			}
+			signCert, err = utils.ParseX509Certificate([]byte(certAuth.Status.CACert))
+			if err != nil {
+				return errors.Wrapf(err, "failed to parse Sign CA certificate from CA %s", certAuth.Name)
+			}
 		}
 		var ordererUrls []string
 		for _, node := range orderers {
@@ -160,30 +180,58 @@ func (c generateChannelCmd) run() error {
 	if err != nil {
 		return err
 	}
+
+	// Group peers by MSP ID to avoid duplicates
+	peerOrgMap := make(map[string]*helpers.ClusterPeer)
 	for _, peer := range peers {
 		if !utils.Contains(c.organizations, peer.Spec.MspID) {
 			continue
 		}
-		caHost := strings.Split(peer.Spec.Secret.Enrollment.Component.Cahost, ".")[0]
-		certAuth, err := helpers.GetCertAuthByURL(
-			clientSet,
-			oclient,
-			caHost,
-			peer.Spec.Secret.Enrollment.Component.Caport,
-		)
-		if err != nil {
-			return err
+		// Use the first peer found for each MSP ID
+		if _, exists := peerOrgMap[peer.Spec.MspID]; !exists {
+			peerOrgMap[peer.Spec.MspID] = peer
 		}
-		rootCert, err := utils.ParseX509Certificate([]byte(certAuth.Status.CACert))
-		if err != nil {
-			return err
+	}
+
+	for mspID, peer := range peerOrgMap {
+		var rootCert, tlsRootCert *x509.Certificate
+		var err error
+
+		// Check credential store type and get certificates accordingly
+		if peer.Spec.CredentialStore == hlfv1alpha1.CredentialStoreVault {
+			// For Vault credential store, get certificates from peer status
+			tlsRootCert, err = utils.ParseX509Certificate([]byte(peer.Status.TlsCACert))
+			if err != nil {
+				return errors.Wrapf(err, "failed to parse TLS CA certificate for peer %s", peer.Name)
+			}
+			rootCert, err = utils.ParseX509Certificate([]byte(peer.Status.SignCACert))
+			if err != nil {
+				return errors.Wrapf(err, "failed to parse Sign CA certificate for peer %s", peer.Name)
+			}
+		} else {
+			// For Kubernetes credential store, get certificates from CA component
+			caHost := strings.Split(peer.Spec.Secret.Enrollment.Component.Cahost, ".")[0]
+			certAuth, err := helpers.GetCertAuthByURL(
+				clientSet,
+				oclient,
+				caHost,
+				peer.Spec.Secret.Enrollment.Component.Caport,
+			)
+			if err != nil {
+				return errors.Wrapf(err, "failed to get certificate authority for peer %s", peer.Name)
+			}
+			rootCert, err = utils.ParseX509Certificate([]byte(certAuth.Status.CACert))
+			if err != nil {
+				return errors.Wrapf(err, "failed to parse Sign CA certificate from CA %s", certAuth.Name)
+			}
+			tlsRootCert, err = utils.ParseX509Certificate([]byte(certAuth.Status.TLSCACert))
+			if err != nil {
+				return errors.Wrapf(err, "failed to parse TLS CA certificate from CA %s", certAuth.Name)
+			}
 		}
-		tlsRootCert, err := utils.ParseX509Certificate([]byte(certAuth.Status.TLSCACert))
-		if err != nil {
-			return err
-		}
+
 		peerOrgs = append(peerOrgs, testutils.CreatePeerOrg(
-			peer.Spec.MspID,
+			mspID,
 			tlsRootCert,
 			rootCert,
 		))
@@ -212,7 +260,7 @@ func (c generateChannelCmd) run() error {
 	if err != nil {
 		return err
 	}
-	err = ioutil.WriteFile(c.output, blockBytes, 0755)
+	err = os.WriteFile(c.output, blockBytes, 0755)
 	if err != nil {
 		return err
 	}

@@ -67,6 +67,134 @@ type FabricPeerReconciler struct {
 	MaxHistory                 int
 }
 
+// ConfigValidator validates peer configuration
+type ConfigValidator struct{}
+
+func (v *ConfigValidator) ValidatePeer(peer *hlfv1alpha1.FabricPeer) error {
+	var errs []error
+
+	if err := v.validateCredentialStore(peer); err != nil {
+		errs = append(errs, err)
+	}
+
+	if err := v.validateNetworking(peer); err != nil {
+		errs = append(errs, err)
+	}
+
+	if err := v.validateResources(peer); err != nil {
+		errs = append(errs, err)
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("validation failed: %v", errs)
+	}
+
+	return nil
+}
+
+func (v *ConfigValidator) validateCredentialStore(peer *hlfv1alpha1.FabricPeer) error {
+	switch peer.Spec.CredentialStore {
+	case hlfv1alpha1.CredentialStoreVault:
+		return v.validateVaultConfig(peer)
+	case hlfv1alpha1.CredentialStoreKubernetes, "":
+		return v.validateFabricCAConfig(peer)
+	default:
+		return fmt.Errorf("unsupported credential store: %s", peer.Spec.CredentialStore)
+	}
+}
+
+func (v *ConfigValidator) validateVaultConfig(peer *hlfv1alpha1.FabricPeer) error {
+	if peer.Spec.Secret.Enrollment.Component.Vault == nil {
+		return errors.New("vault configuration is required when using vault credential store")
+	}
+	if peer.Spec.Secret.Enrollment.TLS.Vault == nil {
+		return errors.New("vault TLS configuration is required when using vault credential store")
+	}
+	return nil
+}
+
+func (v *ConfigValidator) validateFabricCAConfig(peer *hlfv1alpha1.FabricPeer) error {
+	if peer.Spec.Secret.Enrollment.Component.Cahost == "" {
+		return errors.New("CA host is required when using kubernetes credential store")
+	}
+	if peer.Spec.Secret.Enrollment.Component.Enrollid == "" {
+		return errors.New("enrollment ID is required when using kubernetes credential store")
+	}
+	if peer.Spec.Secret.Enrollment.Component.Enrollsecret == "" {
+		return errors.New("enrollment secret is required when using kubernetes credential store")
+	}
+	return nil
+}
+
+func (v *ConfigValidator) validateNetworking(peer *hlfv1alpha1.FabricPeer) error {
+	if peer.Spec.MspID == "" {
+		return errors.New("MSP ID is required")
+	}
+	return nil
+}
+
+func (v *ConfigValidator) validateResources(peer *hlfv1alpha1.FabricPeer) error {
+	if peer.Spec.Storage.Peer.Size == "" {
+		return errors.New("peer storage size is required")
+	}
+	return nil
+}
+
+// LeaseManager manages certificate renewal leases
+type LeaseManager struct {
+	client    kubernetes.Interface
+	leaseName string
+	namespace string
+	logger    logr.Logger
+}
+
+func NewLeaseManager(client kubernetes.Interface, leaseName, namespace string, logger logr.Logger) *LeaseManager {
+	return &LeaseManager{
+		client:    client,
+		leaseName: leaseName,
+		namespace: namespace,
+		logger:    logger,
+	}
+}
+
+func (lm *LeaseManager) AcquireWithRetry(ctx context.Context, holderIdentity string, ttl int32, maxRetries int) (bool, error) {
+	clientSet, ok := lm.client.(*kubernetes.Clientset)
+	if !ok {
+		return false, errors.New("client is not a kubernetes.Clientset")
+	}
+
+	for i := 0; i < maxRetries; i++ {
+		acquired, err := utils.AcquireLease(ctx, clientSet, lm.leaseName, lm.namespace, holderIdentity, ttl)
+		if err != nil {
+			lm.logger.V(1).Info("Lease acquisition attempt failed", "attempt", i+1, "error", err)
+			time.Sleep(time.Second)
+			continue
+		}
+		if acquired {
+			lm.logger.Info("Lease acquired successfully", "holderIdentity", holderIdentity)
+			return true, nil
+		}
+		time.Sleep(time.Second)
+	}
+	lm.logger.Info("Failed to acquire lease after retries", "maxRetries", maxRetries, "holderIdentity", holderIdentity)
+	return false, nil
+}
+
+func (lm *LeaseManager) Release(ctx context.Context, holderIdentity string) error {
+	clientSet, ok := lm.client.(*kubernetes.Clientset)
+	if !ok {
+		return errors.New("client is not a kubernetes.Clientset")
+	}
+
+	err := utils.ReleaseLease(ctx, clientSet, lm.leaseName, lm.namespace, holderIdentity)
+	if err != nil {
+		lm.logger.Error(err, "Failed to release lease", "holderIdentity", holderIdentity)
+		return err
+	}
+	lm.logger.Info("Lease released successfully", "holderIdentity", holderIdentity)
+	return nil
+}
+
 func (r *FabricPeerReconciler) addFinalizer(reqLogger logr.Logger, m *hlfv1alpha1.FabricPeer) error {
 	if len(m.GetFinalizers()) < 1 && m.GetDeletionTimestamp() == nil {
 		reqLogger.Info("Adding Finalizer for the Memcached")
@@ -324,16 +452,11 @@ func (r *FabricPeerReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	}
 	err = r.Get(ctx, req.NamespacedName, fabricPeer)
 	if err != nil {
-		log.Debugf("Error getting the object %s error=%v", req.NamespacedName, err)
 		if apierrors.IsNotFound(err) {
-			// Request object not found, could have been deleted after reconcile request.
-			// Owned objects are automatically garbage collected. For additional cleanup logic use finalizers.
-			// Return and don't requeue
 			reqLogger.Info("Peer resource not found. Ignoring since object must be deleted.")
-
 			return ctrl.Result{}, nil
 		}
-		reqLogger.Error(err, "Failed to get Peer.")
+		reqLogger.Error(err, "Failed to get peer", "namespacedName", req.NamespacedName)
 		r.setConditionStatus(ctx, fabricPeer, hlfv1alpha1.FailedStatus, false, err, false)
 		return r.updateCRStatusOrFailReconcile(ctx, r.Log, fabricPeer)
 	}
@@ -362,6 +485,14 @@ func (r *FabricPeerReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	}
 	if fabricPeer.Spec.CredentialStore == "" {
 		fabricPeer.Spec.CredentialStore = "kubernetes"
+	}
+
+	// Validate configuration
+	validator := &ConfigValidator{}
+	if err := validator.ValidatePeer(fabricPeer); err != nil {
+		reqLogger.Error(err, "Configuration validation failed")
+		r.setConditionStatus(ctx, fabricPeer, hlfv1alpha1.FailedStatus, false, err, false)
+		return r.updateCRStatusOrFailReconcile(ctx, r.Log, fabricPeer)
 	}
 	cmdStatus := action.NewStatus(cfg)
 	exists := true
@@ -410,7 +541,7 @@ func (r *FabricPeerReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			}
 		}
 	}
-	log.Debugf("Release %s exists=%v", releaseName, exists)
+	reqLogger.Info("Release status check", "release", releaseName, "exists", exists)
 	clientSet, err := utils.GetClientKubeWithConf(r.Config)
 	if err != nil {
 		r.setConditionStatus(ctx, fabricPeer, hlfv1alpha1.FailedStatus, false, err, false)
@@ -425,7 +556,7 @@ func (r *FabricPeerReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		r.setConditionStatus(ctx, fabricPeer, hlfv1alpha1.FailedStatus, false, err, false)
 		return r.updateCRStatusOrFailReconcile(ctx, r.Log, fabricPeer)
 	}
-	reqLogger.Info(fmt.Sprintf("Service %s created", svc.Name))
+	reqLogger.Info("Service created successfully", "service", svc.Name, "namespace", ns)
 	if exists {
 		// update
 		hlfClientSet, err := operatorv1.NewForConfig(r.Config)
@@ -456,49 +587,41 @@ func (r *FabricPeerReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			certificatesNeedToBeRenewed = true
 		}
 		requeueAfter := time.Second * 10
-		log.Infof("Peer: Last time certs were updated: %v, they need to be renewed: %v", lastTimeCertsRenewed, certificatesNeedToBeRenewed)
+		reqLogger.Info("Certificate renewal decision", "peer", fabricPeer.Name, "lastUpdate", lastTimeCertsRenewed, "needsRenewal", certificatesNeedToBeRenewed)
 
 		// --- RELEASE LEASE IF HELD AND STATUS IS RUNNING ---
 		if fabricPeer.Status.CertRenewalLeaseHeld && fabricPeer.Status.Status == hlfv1alpha1.RunningStatus {
-			leaseName := "peer-cert-renewal-global-lock"
 			holderIdentity := os.Getenv("POD_NAME")
 			if holderIdentity == "" {
 				holderIdentity = fmt.Sprintf("peer-%s-lock", fabricPeer.Name)
 			}
-			err := utils.ReleaseLease(ctx, clientSet, leaseName, ns, holderIdentity)
-			if err != nil {
-				log.Warnf("Error releasing lease: %v", err)
-			} else {
-				log.Infof("Released cert renewal lease for %s", fabricPeer.Name)
+
+			leaseManager := NewLeaseManager(clientSet, "peer-cert-renewal-global-lock", ns, reqLogger)
+			if err := leaseManager.Release(ctx, holderIdentity); err != nil {
+				reqLogger.Error(err, "Failed to release certificate renewal lease", "holderIdentity", holderIdentity)
 			}
+
 			fabricPeer.Status.CertRenewalLeaseHeld = false
 			if err := r.Status().Update(ctx, fabricPeer); err != nil {
-				log.Errorf("Error updating status after releasing lease: %v", err)
+				reqLogger.Error(err, "Failed to update status after releasing lease")
 			}
 		}
 
 		if certificatesNeedToBeRenewed {
 			// Lease-based lock for cert renewal (global lock)
-			leaseName := "peer-cert-renewal-global-lock"
 			holderIdentity := os.Getenv("POD_NAME")
 			if holderIdentity == "" {
 				holderIdentity = fmt.Sprintf("peer-%s-lock", fabricPeer.Name)
 			}
-			leaseTTL := int32(120)
-			acquired := false
-			for i := 0; i < 5; i++ { // try for ~5 seconds
-				ok, err := utils.AcquireLease(ctx, clientSet, leaseName, ns, holderIdentity, leaseTTL)
-				if err != nil {
-					log.Warnf("Error acquiring lease: %v", err)
-				}
-				if ok {
-					acquired = true
-					break
-				}
-				time.Sleep(time.Second)
+
+			leaseManager := NewLeaseManager(clientSet, "peer-cert-renewal-global-lock", ns, reqLogger)
+			acquired, err := leaseManager.AcquireWithRetry(ctx, holderIdentity, 120, 5)
+			if err != nil {
+				reqLogger.Error(err, "Error during lease acquisition")
+				return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 			}
 			if !acquired {
-				log.Warnf("Could not acquire cert renewal lock for %s, skipping renewal", fabricPeer.Name)
+				reqLogger.Info("Could not acquire cert renewal lock, skipping renewal", "peer", fabricPeer.Name)
 				return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 			}
 			// Set lease held flag
@@ -507,17 +630,18 @@ func (r *FabricPeerReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 				log.Errorf("Error updating status after acquiring lease: %v", err)
 			}
 			// must update the certificates and block until it's done
-			log.Infof("Trying to upgrade certs (lease acquired)")
+			reqLogger.Info("Starting certificate renewal process", "peer", fabricPeer.Name)
 			r.setConditionStatus(ctx, fabricPeer, hlfv1alpha1.UpdatingCertificates, false, nil, false)
-			err := r.updateCerts(req, fabricPeer, clientSet, releaseName, svc, ctx, cfg, ns)
+			err = r.updateCerts(req, fabricPeer, clientSet, releaseName, svc, ctx, cfg, ns)
 			if err != nil {
-				log.Errorf("Error renewing certs: %v", err)
-				r.setConditionStatus(ctx, fabricPeer, hlfv1alpha1.FailedStatus, false, err, false)
+				reqLogger.Error(err, "Certificate renewal failed", "peer", fabricPeer.Name)
+				r.setConditionStatus(ctx, fabricPeer, hlfv1alpha1.FailedStatus, false,
+					errors.Wrapf(err, "certificate renewal failed for peer %s", fabricPeer.Name), false)
 				return r.updateCRStatusOrFailReconcile(ctx, r.Log, fabricPeer)
 			}
 			now := v1.NewTime(time.Now().Add(time.Minute * 5)) // to avoid the upgrade certs to be triggered again
 			lastTimeCertsRenewed = &now
-			log.Infof("Peer certs updated, last time updated: %v", lastTimeCertsRenewed)
+			reqLogger.Info("Certificate renewal completed successfully", "peer", fabricPeer.Name, "lastUpdate", lastTimeCertsRenewed)
 			requeueAfter = time.Minute * 5
 		} else {
 			c, err := GetConfig(fabricPeer, clientSet, releaseName, req.Namespace, svc, false, r.RenewCertificatesReenroll)
@@ -560,30 +684,23 @@ func (r *FabricPeerReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 				return r.updateCRStatusOrFailReconcile(ctx, r.Log, fabricPeer)
 			}
 		}
-		log.Infof("Peer %s in %s status requeueAfter %v", fPeer.Name, string(s.Status), requeueAfter)
+		reqLogger.Info("Peer status update", "peer", fPeer.Name, "status", string(s.Status), "requeueAfter", requeueAfter)
 		switch s.Status {
 		case hlfv1alpha1.PendingStatus:
-			log.Infof("Peer %s in %s status", fPeer.Name, string(s.Status))
-			return ctrl.Result{
-				RequeueAfter: 10 * time.Second,
-			}, nil
+			reqLogger.Info("Peer in pending status", "peer", fPeer.Name)
+			return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 		case hlfv1alpha1.FailedStatus:
-			log.Infof("Peer %s in %s status", fPeer.Name, string(s.Status))
-			return ctrl.Result{
-				RequeueAfter: requeueAfter,
-			}, nil
+			reqLogger.Error(nil, "Peer in failed status", "peer", fPeer.Name, "message", s.Message)
+			return ctrl.Result{RequeueAfter: requeueAfter}, nil
 		case hlfv1alpha1.RunningStatus:
-			return ctrl.Result{
-				RequeueAfter: requeueAfter,
-			}, nil
+			reqLogger.V(1).Info("Peer running normally", "peer", fPeer.Name, "requeueAfter", requeueAfter)
+			return ctrl.Result{RequeueAfter: requeueAfter}, nil
 		case hlfv1alpha1.UpdatingCertificates:
-			return ctrl.Result{
-				RequeueAfter: requeueAfter,
-			}, nil
+			reqLogger.Info("Peer updating certificates", "peer", fPeer.Name)
+			return ctrl.Result{RequeueAfter: requeueAfter}, nil
 		default:
-			return ctrl.Result{
-				RequeueAfter: 2 * time.Second,
-			}, nil
+			reqLogger.Info("Peer in unknown status", "peer", fPeer.Name, "status", string(s.Status))
+			return ctrl.Result{RequeueAfter: 2 * time.Second}, nil
 		}
 	} else {
 		cmd := action.NewInstall(cfg)
@@ -631,7 +748,7 @@ func (r *FabricPeerReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			r.setConditionStatus(ctx, fabricPeer, hlfv1alpha1.FailedStatus, false, err, false)
 			return r.updateCRStatusOrFailReconcile(ctx, r.Log, fabricPeer)
 		}
-		log.Infof("Chart installed %s", release.Name)
+		reqLogger.Info("Chart installed successfully", "release", release.Name, "namespace", ns)
 		err = r.Get(ctx, req.NamespacedName, fabricPeer)
 		if err != nil {
 			r.setConditionStatus(ctx, fabricPeer, hlfv1alpha1.FailedStatus, false, err, false)
@@ -655,17 +772,25 @@ func (r *FabricPeerReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 }
 
 func (r *FabricPeerReconciler) updateCerts(req ctrl.Request, fPeer *hlfv1alpha1.FabricPeer, clientSet *kubernetes.Clientset, releaseName string, svc *corev1.Service, ctx context.Context, cfg *action.Configuration, ns string) error {
-	log.Infof("Trying to upgrade certs")
+	reqLogger := r.Log.WithValues("peer", fPeer.Name, "namespace", ns, "operation", "updateCerts")
+	reqLogger.Info("Starting certificate update process")
+
 	r.setConditionStatus(ctx, fPeer, hlfv1alpha1.UpdatingCertificates, false, nil, false)
+
 	config, err := GetConfig(fPeer, clientSet, releaseName, req.Namespace, svc, true, r.RenewCertificatesReenroll)
 	if err != nil {
-		log.Errorf("Error getting the config: %v", err)
-		return err
+		reqLogger.Error(err, "Failed to get configuration for certificate update")
+		return errors.Wrapf(err, "failed to get configuration for peer %s", fPeer.Name)
 	}
-	err = r.upgradeChart(cfg, err, ns, releaseName, config)
+
+	reqLogger.Info("Upgrading chart with new certificates")
+	err = r.upgradeChart(cfg, nil, ns, releaseName, config)
 	if err != nil {
-		return err
+		reqLogger.Error(err, "Failed to upgrade chart with new certificates")
+		return errors.Wrapf(err, "failed to upgrade chart for peer %s", fPeer.Name)
 	}
+
+	reqLogger.Info("Certificate update completed successfully")
 	return nil
 }
 
@@ -699,12 +824,12 @@ func (r *FabricPeerReconciler) upgradeChart(
 	cmd.Wait = r.Wait
 	cmd.MaxHistory = r.MaxHistory
 	cmd.Timeout = r.Timeout
-	log.Infof("Upgrading chart %s", inrec)
+	r.Log.Info("Upgrading chart", "release", releaseName, "namespace", ns)
 	release, err := cmd.Run(releaseName, ch, inInterface)
 	if err != nil {
 		return err
 	}
-	log.Infof("Chart upgraded %s", release.Name)
+	r.Log.Info("Chart upgraded successfully", "release", release.Name)
 	return nil
 }
 

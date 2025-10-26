@@ -19,7 +19,6 @@ import (
 	"github.com/hyperledger/fabric-config/configtx/membership"
 	"github.com/hyperledger/fabric-config/configtx/orderer"
 	"github.com/hyperledger/fabric-config/protolator"
-	"github.com/hyperledger/fabric-protos-go/common"
 	cb "github.com/hyperledger/fabric-protos-go/common"
 	sb "github.com/hyperledger/fabric-protos-go/orderer/smartbft"
 	"github.com/hyperledger/fabric-sdk-go/pkg/client/resmgmt"
@@ -42,7 +41,6 @@ import (
 	"github.com/kfsoftware/hlf-operator/pkg/nc"
 	"github.com/kfsoftware/hlf-operator/pkg/status"
 	"github.com/pkg/errors"
-	log "github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v3"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -66,26 +64,48 @@ type FabricMainChannelReconciler struct {
 
 const mainChannelFinalizer = "finalizer.mainChannel.hlf.kungfusoftware.es"
 
+var (
+	ErrClientK8s          = errors.New("k8sAPIClientError")
+	ErrInvalidConfig      = errors.New("invalidConfigurationError")
+	ErrChannelOperation   = errors.New("channelOperationError")
+	ErrOrdererConnection  = errors.New("ordererConnectionError")
+	ErrIdentityManagement = errors.New("identityManagementError")
+)
+
 func (r *FabricMainChannelReconciler) finalizeMainChannel(reqLogger logr.Logger, m *hlfv1alpha1.FabricMainChannel) error {
 	ns := m.Namespace
 	if ns == "" {
 		ns = "default"
 	}
-	reqLogger.Info("Successfully finalized mainChannel")
 
+	reqLogger.Info("Successfully finalized main channel",
+		"channel", m.Name,
+		"namespace", ns,
+	)
 	return nil
 }
 
 func (r *FabricMainChannelReconciler) addFinalizer(reqLogger logr.Logger, m *hlfv1alpha1.FabricMainChannel) error {
-	reqLogger.Info("Adding Finalizer for the MainChannel")
+	reqLogger.Info("Adding finalizer for main channel",
+		"channel", m.Name,
+		"namespace", m.Namespace,
+		"finalizer", mainChannelFinalizer,
+	)
+
 	controllerutil.AddFinalizer(m, mainChannelFinalizer)
 
-	// Update CR
-	err := r.Update(context.TODO(), m)
-	if err != nil {
-		reqLogger.Error(err, "Failed to update MainChannel with finalizer")
-		return err
+	if err := r.Update(context.TODO(), m); err != nil {
+		reqLogger.Error(err, "Failed to update main channel with finalizer",
+			"channel", m.Name,
+			"namespace", m.Namespace,
+		)
+		return errors.Wrap(err, "failed to add finalizer to main channel")
 	}
+
+	reqLogger.Info("Successfully added finalizer to main channel",
+		"channel", m.Name,
+		"namespace", m.Namespace,
+	)
 	return nil
 }
 
@@ -96,84 +116,119 @@ func (r *FabricMainChannelReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	reqLogger := r.Log.WithValues("hlf", req.NamespacedName)
 	fabricMainChannel := &hlfv1alpha1.FabricMainChannel{}
 
-	if err := r.handleInitialSetup(ctx, req, fabricMainChannel, reqLogger); err != nil {
+	reqLogger.Info("Starting main channel reconciliation",
+		"channel", req.Name,
+		"namespace", req.Namespace,
+	)
+
+	// Validate configuration and handle initial setup
+	if err := r.validateAndSetup(ctx, req, fabricMainChannel, reqLogger); err != nil {
 		return r.handleReconcileError(ctx, fabricMainChannel, err)
 	}
 
+	// Early return if resource is being deleted or doesn't exist
+	if fabricMainChannel.Name == "" {
+		return ctrl.Result{}, nil
+	}
+
+	// Get Kubernetes clients
 	clientSet, hlfClientSet, err := r.getClientSets()
 	if err != nil {
-		return r.handleReconcileError(ctx, fabricMainChannel, err)
+		return r.handleReconcileError(ctx, fabricMainChannel,
+			errors.Wrap(err, "failed to get kubernetes clients"))
 	}
 
+	// Setup Fabric SDK
 	sdk, err := r.setupSDK(fabricMainChannel, clientSet, hlfClientSet)
 	if err != nil {
-		return r.handleReconcileError(ctx, fabricMainChannel, err)
+		return r.handleReconcileError(ctx, fabricMainChannel,
+			errors.Wrap(err, "failed to setup fabric SDK"))
 	}
-	defer sdk.Close()
+	defer func() {
+		sdk.Close()
+	}()
 
 	resClient, _, err := r.setupResClient(sdk, fabricMainChannel, clientSet)
 	if err != nil {
-		return r.handleReconcileError(ctx, fabricMainChannel, err)
+		return r.handleReconcileError(ctx, fabricMainChannel,
+			errors.Wrap(err, "failed to setup resource management client"))
 	}
 
 	options, endpoints := r.setupResmgmtOptions(fabricMainChannel)
+	if len(endpoints) == 0 {
+		return r.handleReconcileError(ctx, fabricMainChannel,
+			errors.Wrap(ErrInvalidConfig, "no orderer endpoints configured"))
+	}
+
+	reqLogger.Info("Checking if channel exists",
+		"channel", fabricMainChannel.Spec.Name,
+		"ordererEndpoints", len(endpoints),
+	)
 
 	// Try to get existing channel config
-	channelBlock, err := r.queryConfigBlockFromOrdererWithRoundRobin(resClient, fabricMainChannel.Spec.Name, endpoints, options)
+	_, err = r.queryConfigBlockFromOrdererWithRoundRobin(resClient, fabricMainChannel.Spec.Name, endpoints, options)
 	if err != nil {
-		// Channel doesn't exist, create it and join orderers
-		log.Infof("Channel %s does not exist, creating it", fabricMainChannel.Spec.Name)
-		blockBytes, err := r.createNewChannel(fabricMainChannel)
-		if err != nil {
-			return r.handleReconcileError(ctx, fabricMainChannel, errors.Wrap(err, "failed to create new channel"))
-		}
+		// Channel doesn't exist, create it
+		reqLogger.Info("Channel does not exist, creating new channel",
+			"channel", fabricMainChannel.Spec.Name,
+		)
 
-		// Join orderers to the channel
-		if err := r.joinOrderers(ctx, fabricMainChannel, clientSet, hlfClientSet, blockBytes); err != nil {
-			return r.handleReconcileError(ctx, fabricMainChannel, errors.Wrap(err, "failed to join orderers to channel"))
+		if err := r.createAndJoinChannel(ctx, fabricMainChannel, clientSet, hlfClientSet, resClient, endpoints, options); err != nil {
+			return r.handleReconcileError(ctx, fabricMainChannel, err)
 		}
-
-		// Wait for orderers to stabilize
-		time.Sleep(5 * time.Second)
-
-		// Get the config block after channel creation
-		channelBlock, err = r.queryConfigBlockFromOrdererWithRoundRobin(resClient, fabricMainChannel.Spec.Name, endpoints, options)
-		if err != nil {
-			return r.handleReconcileError(ctx, fabricMainChannel, errors.Wrap(err, "failed to get config block after creating channel"))
-		}
+	} else {
+		reqLogger.Info("Channel already exists, proceeding with configuration update",
+			"channel", fabricMainChannel.Spec.Name,
+		)
 	}
-	_ = channelBlock
 
-	// Update channel config if needed
+	// Update channel configuration if needed
 	if err := r.updateChannelConfig(ctx, fabricMainChannel, resClient, options, sdk, clientSet); err != nil {
-		return r.handleReconcileError(ctx, fabricMainChannel, err)
+		return r.handleReconcileError(ctx, fabricMainChannel,
+			errors.Wrap(err, "failed to update channel configuration"))
 	}
 
+	// Allow time for configuration to propagate
 	time.Sleep(3 * time.Second)
 
-	// Save channel config
+	// Save channel configuration to ConfigMap
 	if err := r.saveChannelConfig(ctx, fabricMainChannel, resClient); err != nil {
-		return r.handleReconcileError(ctx, fabricMainChannel, err)
+		return r.handleReconcileError(ctx, fabricMainChannel,
+			errors.Wrap(err, "failed to save channel configuration"))
 	}
 
 	return r.finalizeReconcile(ctx, fabricMainChannel)
 }
 
-func (r *FabricMainChannelReconciler) handleInitialSetup(ctx context.Context, req ctrl.Request, fabricMainChannel *hlfv1alpha1.FabricMainChannel, reqLogger logr.Logger) error {
+func (r *FabricMainChannelReconciler) validateAndSetup(ctx context.Context, req ctrl.Request, fabricMainChannel *hlfv1alpha1.FabricMainChannel, reqLogger logr.Logger) error {
 	err := r.Get(ctx, req.NamespacedName, fabricMainChannel)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
-			reqLogger.Info("MainChannel resource not found. Ignoring since object must be deleted.")
+			reqLogger.Info("Main channel resource not found, ignoring since object must be deleted")
 			return nil
 		}
-		reqLogger.Error(err, "Failed to get MainChannel.")
-		return err
+		reqLogger.Error(err, "Failed to get main channel resource",
+			"channel", req.Name,
+			"namespace", req.Namespace,
+		)
+		return errors.Wrap(err, "failed to get main channel resource")
 	}
 
+	// Validate basic configuration
+	if err := r.validateMainChannelConfig(fabricMainChannel); err != nil {
+		reqLogger.Error(err, "Invalid main channel configuration",
+			"channel", fabricMainChannel.Name,
+			"namespace", fabricMainChannel.Namespace,
+		)
+		return errors.Wrap(err, "invalid main channel configuration")
+	}
+
+	// Handle deletion
 	if fabricMainChannel.GetDeletionTimestamp() != nil {
 		return r.handleDeletion(reqLogger, fabricMainChannel)
 	}
 
+	// Add finalizer if not present
 	if !utils.Contains(fabricMainChannel.GetFinalizers(), mainChannelFinalizer) {
 		return r.addFinalizer(reqLogger, fabricMainChannel)
 	}
@@ -181,65 +236,165 @@ func (r *FabricMainChannelReconciler) handleInitialSetup(ctx context.Context, re
 	return nil
 }
 
+func (r *FabricMainChannelReconciler) validateMainChannelConfig(channel *hlfv1alpha1.FabricMainChannel) error {
+	if channel.Spec.Name == "" {
+		return errors.Wrap(ErrInvalidConfig, "channel name cannot be empty")
+	}
+
+	if len(channel.Spec.OrdererOrganizations) == 0 {
+		return errors.Wrap(ErrInvalidConfig, "at least one orderer organization must be specified")
+	}
+
+	if len(channel.Spec.AdminOrdererOrganizations) == 0 {
+		return errors.Wrap(ErrInvalidConfig, "at least one admin orderer organization must be specified")
+	}
+
+	// Validate that admin orderer organizations exist in orderer organizations
+	for _, adminOrg := range channel.Spec.AdminOrdererOrganizations {
+		found := false
+		for _, ordOrg := range channel.Spec.OrdererOrganizations {
+			if adminOrg.MSPID == ordOrg.MSPID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return errors.Wrapf(ErrInvalidConfig, "admin orderer organization %s not found in orderer organizations", adminOrg.MSPID)
+		}
+	}
+
+	// Validate identities exist for admin organizations
+	for _, adminOrg := range channel.Spec.AdminOrdererOrganizations {
+		identityKey := fmt.Sprintf("%s-sign", adminOrg.MSPID)
+		if _, exists := channel.Spec.Identities[identityKey]; !exists {
+			// Try without -sign suffix
+			if _, exists := channel.Spec.Identities[adminOrg.MSPID]; !exists {
+				return errors.Wrapf(ErrInvalidConfig, "identity not found for admin orderer organization %s", adminOrg.MSPID)
+			}
+		}
+	}
+
+	return nil
+}
+
+func (r *FabricMainChannelReconciler) createAndJoinChannel(ctx context.Context, fabricMainChannel *hlfv1alpha1.FabricMainChannel, clientSet *kubernetes.Clientset, hlfClientSet *operatorv1.Clientset, resClient *resmgmt.Client, endpoints []string, options []resmgmt.RequestOption) error {
+	reqLogger := r.Log.WithValues("channel", fabricMainChannel.Spec.Name)
+
+	// Create new channel
+	blockBytes, err := r.createNewChannel(fabricMainChannel)
+	if err != nil {
+		return errors.Wrap(err, "failed to create new channel")
+	}
+
+	reqLogger.Info("Successfully created channel genesis block",
+		"channel", fabricMainChannel.Spec.Name,
+		"blockSize", len(blockBytes),
+	)
+
+	// Join orderers to the channel
+	if err := r.joinOrderers(ctx, fabricMainChannel, clientSet, hlfClientSet, blockBytes); err != nil {
+		return errors.Wrap(err, "failed to join orderers to channel")
+	}
+
+	// Wait for orderers to stabilize
+	reqLogger.Info("Waiting for orderers to stabilize after channel creation")
+	time.Sleep(5 * time.Second)
+
+	// Verify channel was created successfully
+	_, err = r.queryConfigBlockFromOrdererWithRoundRobin(resClient, fabricMainChannel.Spec.Name, endpoints, options)
+	if err != nil {
+		return errors.Wrap(err, "failed to verify channel creation")
+	}
+
+	reqLogger.Info("Successfully created and joined channel",
+		"channel", fabricMainChannel.Spec.Name,
+	)
+	return nil
+}
+
 func (r *FabricMainChannelReconciler) getClientSets() (*kubernetes.Clientset, *operatorv1.Clientset, error) {
 	clientSet, err := utils.GetClientKubeWithConf(r.Config)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, errors.Wrap(err, "failed to create kubernetes client")
 	}
 
 	hlfClientSet, err := operatorv1.NewForConfig(r.Config)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, errors.Wrap(err, "failed to create HLF client")
 	}
 
 	return clientSet, hlfClientSet, nil
 }
 
 func (r *FabricMainChannelReconciler) setupSDK(fabricMainChannel *hlfv1alpha1.FabricMainChannel, clientSet *kubernetes.Clientset, hlfClientSet *operatorv1.Clientset) (*fabsdk.FabricSDK, error) {
+	reqLogger := r.Log.WithValues("channel", fabricMainChannel.Spec.Name)
+
+	reqLogger.Info("Generating network configuration for Fabric SDK")
 	ncResponse, err := nc.GenerateNetworkConfig(fabricMainChannel, clientSet, hlfClientSet, "")
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to generate network config")
+		return nil, errors.Wrap(err, "failed to generate network configuration")
 	}
 
+	reqLogger.Info("Initializing Fabric SDK with network configuration")
 	configBackend := config.FromRaw([]byte(ncResponse.NetworkConfig), "yaml")
 	sdk, err := fabsdk.New(configBackend)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "failed to initialize Fabric SDK")
 	}
 
+	reqLogger.Info("Successfully initialized Fabric SDK")
 	return sdk, nil
 }
 
 func (r *FabricMainChannelReconciler) setupResClient(sdk *fabsdk.FabricSDK, fabricMainChannel *hlfv1alpha1.FabricMainChannel, clientSet *kubernetes.Clientset) (*resmgmt.Client, msp.SigningIdentity, error) {
+	reqLogger := r.Log.WithValues("channel", fabricMainChannel.Spec.Name)
+
+	if len(fabricMainChannel.Spec.AdminOrdererOrganizations) == 0 {
+		return nil, nil, errors.Wrap(ErrInvalidConfig, "no admin orderer organizations configured")
+	}
+
 	firstAdminOrgMSPID := fabricMainChannel.Spec.AdminOrdererOrganizations[0].MSPID
-	idConfig, ok := fabricMainChannel.Spec.Identities[fmt.Sprintf("%s-sign", firstAdminOrgMSPID)]
+	reqLogger.Info("Setting up resource management client",
+		"adminOrgMSPID", firstAdminOrgMSPID,
+	)
+
+	// Try to find identity with -sign suffix first, then fallback to raw MSPID
+	identityKey := fmt.Sprintf("%s-sign", firstAdminOrgMSPID)
+	idConfig, ok := fabricMainChannel.Spec.Identities[identityKey]
 	if !ok {
-		// If -sign identity is not found, try with raw MSPID
+		identityKey = firstAdminOrgMSPID
 		idConfig, ok = fabricMainChannel.Spec.Identities[firstAdminOrgMSPID]
 		if !ok {
-			return nil, nil, fmt.Errorf("identity not found for MSPID %s or %s-sign", firstAdminOrgMSPID, firstAdminOrgMSPID)
+			return nil, nil, errors.Wrapf(ErrIdentityManagement,
+				"identity not found for MSPID %s (tried %s-sign and %s)",
+				firstAdminOrgMSPID, firstAdminOrgMSPID, firstAdminOrgMSPID)
 		}
 	}
 
+	reqLogger.Info("Loading identity from secret",
+		"identityKey", identityKey,
+		"secretName", idConfig.SecretName,
+		"secretNamespace", idConfig.SecretNamespace,
+	)
+
 	secret, err := clientSet.CoreV1().Secrets(idConfig.SecretNamespace).Get(context.Background(), idConfig.SecretName, v1.GetOptions{})
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, errors.Wrapf(err, "failed to get identity secret %s/%s", idConfig.SecretNamespace, idConfig.SecretName)
 	}
 
 	secretData, ok := secret.Data[idConfig.SecretKey]
 	if !ok {
-		return nil, nil, fmt.Errorf("secret key %s not found", idConfig.SecretKey)
+		return nil, nil, errors.Wrapf(ErrIdentityManagement, "secret key %s not found in secret", idConfig.SecretKey)
 	}
 
 	id := &identity{}
-	err = yaml.Unmarshal(secretData, id)
-	if err != nil {
-		return nil, nil, err
+	if err := yaml.Unmarshal(secretData, id); err != nil {
+		return nil, nil, errors.Wrap(err, "failed to unmarshal identity data")
 	}
 
 	signingIdentity, err := r.createSigningIdentity(sdk, firstAdminOrgMSPID, id)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, errors.Wrap(err, "failed to create signing identity")
 	}
 
 	sdkContext := sdk.Context(
@@ -249,9 +404,12 @@ func (r *FabricMainChannelReconciler) setupResClient(sdk *fabsdk.FabricSDK, fabr
 
 	resClient, err := resmgmt.New(sdkContext)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, errors.Wrap(err, "failed to create resource management client")
 	}
 
+	reqLogger.Info("Successfully created resource management client",
+		"adminOrgMSPID", firstAdminOrgMSPID,
+	)
 	return resClient, signingIdentity, nil
 }
 
@@ -321,7 +479,10 @@ func (r *FabricMainChannelReconciler) getCertPool(ordererOrg hlfv1alpha1.FabricM
 func (r *FabricMainChannelReconciler) getTLSClientCert(ordererOrg hlfv1alpha1.FabricMainChannelOrdererOrganization, fabricMainChannel *hlfv1alpha1.FabricMainChannel, clientSet *kubernetes.Clientset) (tls.Certificate, error) {
 	idConfig, ok := fabricMainChannel.Spec.Identities[fmt.Sprintf("%s-tls", ordererOrg.MSPID)]
 	if !ok {
-		log.Infof("Identity for MSPID %s not found, trying with normal identity", fmt.Sprintf("%s-tls", ordererOrg.MSPID))
+		r.Log.Info("TLS identity not found, trying with normal identity",
+			"mspID", ordererOrg.MSPID,
+			"attemptedKey", fmt.Sprintf("%s-tls", ordererOrg.MSPID),
+		)
 		idConfig, ok = fabricMainChannel.Spec.Identities[ordererOrg.MSPID]
 		if !ok {
 			return tls.Certificate{}, fmt.Errorf("identity not found for MSPID %s", ordererOrg.MSPID)
@@ -347,83 +508,146 @@ func (r *FabricMainChannelReconciler) getTLSClientCert(ordererOrg hlfv1alpha1.Fa
 }
 
 func (r *FabricMainChannelReconciler) joinExternalOrderers(ordererOrg hlfv1alpha1.FabricMainChannelOrdererOrganization, fabricMainChannel *hlfv1alpha1.FabricMainChannel, blockBytes []byte, certPool *x509.CertPool, tlsClientCert tls.Certificate) error {
+	reqLogger := r.Log.WithValues("channel", fabricMainChannel.Spec.Name, "orgMSPID", ordererOrg.MSPID)
+
 	for _, cc := range ordererOrg.ExternalOrderersToJoin {
 		osnUrl := fmt.Sprintf("https://%s:%d", cc.Host, cc.AdminPort)
-		log.Infof("Trying to join orderer %s to channel %s", osnUrl, fabricMainChannel.Spec.Name)
+		reqLogger.Info("Attempting to join external orderer to channel",
+			"ordererURL", osnUrl,
+			"host", cc.Host,
+			"adminPort", cc.AdminPort,
+		)
 
+		// Check if orderer is already joined
 		chInfoResponse, err := osnadmin.ListSingleChannel(osnUrl, fabricMainChannel.Spec.Name, certPool, tlsClientCert)
 		if err != nil {
-			return err
+			return errors.Wrapf(ErrOrdererConnection, "failed to check channel status on orderer %s: %v", osnUrl, err)
 		}
 		defer chInfoResponse.Body.Close()
+
 		if chInfoResponse.StatusCode == 200 {
-			log.Infof("Orderer %s already joined to channel %s", osnUrl, fabricMainChannel.Spec.Name)
+			reqLogger.Info("External orderer already joined to channel",
+				"ordererURL", osnUrl,
+			)
 			continue
 		}
 
+		// Join orderer to channel
 		chResponse, err := osnadmin.Join(osnUrl, blockBytes, certPool, tlsClientCert)
 		if err != nil {
-			return err
+			return errors.Wrapf(ErrOrdererConnection, "failed to join orderer %s to channel: %v", osnUrl, err)
 		}
 		defer chResponse.Body.Close()
+
 		if chResponse.StatusCode == 405 {
-			log.Infof("Orderer %s already joined to channel %s", osnUrl, fabricMainChannel.Spec.Name)
+			reqLogger.Info("External orderer already joined to channel (method not allowed response)",
+				"ordererURL", osnUrl,
+			)
 			continue
 		}
+
 		responseData, err := ioutil.ReadAll(chResponse.Body)
 		if err != nil {
-			return err
+			return errors.Wrapf(err, "failed to read response from orderer %s", osnUrl)
 		}
-		log.Infof("Orderer %s joined Status code=%d", osnUrl, chResponse.StatusCode)
+
+		reqLogger.Info("External orderer join response",
+			"ordererURL", osnUrl,
+			"statusCode", chResponse.StatusCode,
+		)
 
 		if chResponse.StatusCode != 201 {
-			return fmt.Errorf("response from orderer %s trying to join to the channel %s: %d, response: %s", osnUrl, fabricMainChannel.Spec.Name, chResponse.StatusCode, string(responseData))
+			return errors.Wrapf(ErrChannelOperation,
+				"failed to join orderer %s to channel %s: status=%d, response=%s",
+				osnUrl, fabricMainChannel.Spec.Name, chResponse.StatusCode, string(responseData))
 		}
+
+		reqLogger.Info("Successfully joined external orderer to channel",
+			"ordererURL", osnUrl,
+		)
 	}
 	return nil
 }
 
 func (r *FabricMainChannelReconciler) joinInternalOrderers(ctx context.Context, ordererOrg hlfv1alpha1.FabricMainChannelOrdererOrganization, fabricMainChannel *hlfv1alpha1.FabricMainChannel, hlfClientSet *operatorv1.Clientset, blockBytes []byte, certPool *x509.CertPool, tlsClientCert tls.Certificate, clientSet *kubernetes.Clientset) error {
+	reqLogger := r.Log.WithValues("channel", fabricMainChannel.Spec.Name, "orgMSPID", ordererOrg.MSPID)
+
 	for _, cc := range ordererOrg.OrderersToJoin {
+		reqLogger.Info("Attempting to join internal orderer to channel",
+			"ordererName", cc.Name,
+			"ordererNamespace", cc.Namespace,
+		)
+
 		ordererNode, err := hlfClientSet.HlfV1alpha1().FabricOrdererNodes(cc.Namespace).Get(ctx, cc.Name, v1.GetOptions{})
 		if err != nil {
-			return err
+			return errors.Wrapf(err, "failed to get orderer node %s/%s", cc.Namespace, cc.Name)
 		}
+
 		adminHost, adminPort, err := helpers.GetOrdererAdminHostAndPort(clientSet, ordererNode.Spec, ordererNode.Status)
 		if err != nil {
-			return err
+			return errors.Wrapf(err, "failed to get admin host and port for orderer %s/%s", cc.Namespace, cc.Name)
 		}
+
 		osnUrl := fmt.Sprintf("https://%s:%d", adminHost, adminPort)
-		log.Infof("Trying to join orderer %s to channel %s", osnUrl, fabricMainChannel.Spec.Name)
+		reqLogger.Info("Joining internal orderer to channel",
+			"ordererName", cc.Name,
+			"ordererNamespace", cc.Namespace,
+			"ordererURL", osnUrl,
+		)
+
 		chResponse, err := osnadmin.Join(osnUrl, blockBytes, certPool, tlsClientCert)
 		if err != nil {
-			return err
+			return errors.Wrapf(ErrOrdererConnection, "failed to join orderer %s/%s to channel: %v", cc.Namespace, cc.Name, err)
 		}
 		defer chResponse.Body.Close()
+
 		if chResponse.StatusCode == 405 {
-			log.Infof("Orderer %s already joined to channel %s", osnUrl, fabricMainChannel.Spec.Name)
+			reqLogger.Info("Internal orderer already joined to channel",
+				"ordererName", cc.Name,
+				"ordererNamespace", cc.Namespace,
+			)
 			continue
 		}
+
 		responseData, err := ioutil.ReadAll(chResponse.Body)
 		if err != nil {
-			return err
+			return errors.Wrapf(err, "failed to read response from orderer %s/%s", cc.Namespace, cc.Name)
 		}
-		log.Infof("Orderer %s.%s joined Status code=%d", cc.Name, cc.Namespace, chResponse.StatusCode)
+
+		reqLogger.Info("Internal orderer join response",
+			"ordererName", cc.Name,
+			"ordererNamespace", cc.Namespace,
+			"statusCode", chResponse.StatusCode,
+		)
+
 		if chResponse.StatusCode != 201 {
-			return fmt.Errorf("response from orderer %s trying to join to the channel %s: %d, response: %s", osnUrl, fabricMainChannel.Spec.Name, chResponse.StatusCode, string(responseData))
+			return errors.Wrapf(ErrChannelOperation,
+				"failed to join orderer %s/%s to channel %s: status=%d, response=%s",
+				cc.Namespace, cc.Name, fabricMainChannel.Spec.Name, chResponse.StatusCode, string(responseData))
 		}
+
+		reqLogger.Info("Successfully joined internal orderer to channel",
+			"ordererName", cc.Name,
+			"ordererNamespace", cc.Namespace,
+		)
 	}
 	return nil
 }
 
-func (r *FabricMainChannelReconciler) queryConfigBlockFromOrdererWithRoundRobin(resClient *resmgmt.Client, channelID string, ordererEndpoints []string, resmgmtOptions []resmgmt.RequestOption) (*common.Block, error) {
+func (r *FabricMainChannelReconciler) queryConfigBlockFromOrdererWithRoundRobin(resClient *resmgmt.Client, channelID string, ordererEndpoints []string, resmgmtOptions []resmgmt.RequestOption) (*cb.Block, error) {
+	reqLogger := r.Log.WithValues("channel", channelID)
+
 	if len(ordererEndpoints) == 0 {
-		return nil, fmt.Errorf("no orderer endpoints available")
+		return nil, errors.Wrap(ErrOrdererConnection, "no orderer endpoints available")
 	}
+
+	reqLogger.Info("Querying config block from orderers",
+		"ordererCount", len(ordererEndpoints),
+	)
 
 	// Try each orderer in sequence until one succeeds
 	var lastErr error
-	for _, endpoint := range ordererEndpoints {
+	for i, endpoint := range ordererEndpoints {
 		// Create options for this specific orderer
 		ordererOpts := []resmgmt.RequestOption{
 			resmgmt.WithOrdererEndpoint(endpoint),
@@ -437,22 +661,36 @@ func (r *FabricMainChannelReconciler) queryConfigBlockFromOrdererWithRoundRobin(
 		// Add any other options that were passed in (except orderer endpoints)
 		ordererOpts = append(ordererOpts, resmgmtOptions...)
 
-		log.Infof("Attempting to query config block from orderer %s", endpoint)
+		reqLogger.Info("Attempting to query config block from orderer",
+			"endpoint", endpoint,
+			"attempt", i+1,
+			"totalOrderers", len(ordererEndpoints),
+		)
+
 		block, err := resClient.QueryConfigBlockFromOrderer(channelID, ordererOpts...)
 		if err != nil {
-			log.Warnf("Failed to query config block from orderer %s: %v", endpoint, err)
+			reqLogger.Info("Failed to query config block from orderer",
+				"endpoint", endpoint,
+				"error", err.Error(),
+			)
 			lastErr = err
 			continue
 		}
-		log.Infof("Successfully queried config block from orderer %s", endpoint)
+
+		reqLogger.Info("Successfully queried config block from orderer",
+			"endpoint", endpoint,
+			"blockNumber", block.Header.Number,
+		)
 		return block, nil
 	}
 
-	return nil, fmt.Errorf("failed to query config block from all orderers, last error: %v", lastErr)
+	return nil, errors.Wrapf(ErrOrdererConnection,
+		"failed to query config block from all %d orderers, last error: %v",
+		len(ordererEndpoints), lastErr)
 }
 
-func (r *FabricMainChannelReconciler) fetchOrdererChannelBlock(resClient *resmgmt.Client, fabricMainChannel *hlfv1alpha1.FabricMainChannel) (*common.Block, error) {
-	var ordererChannelBlock *common.Block
+func (r *FabricMainChannelReconciler) fetchOrdererChannelBlock(resClient *resmgmt.Client, fabricMainChannel *hlfv1alpha1.FabricMainChannel) (*cb.Block, error) {
+	var ordererChannelBlock *cb.Block
 	var err error
 
 	options, endpoints := r.setupResmgmtOptions(fabricMainChannel)
@@ -463,8 +701,8 @@ func (r *FabricMainChannelReconciler) fetchOrdererChannelBlock(resClient *resmgm
 	return ordererChannelBlock, nil
 }
 
-func (r *FabricMainChannelReconciler) collectConfigSignatures(fabricMainChannel *hlfv1alpha1.FabricMainChannel, sdk *fabsdk.FabricSDK, clientSet *kubernetes.Clientset, channelConfigBytes []byte) ([]*common.ConfigSignature, error) {
-	var configSignatures []*common.ConfigSignature
+func (r *FabricMainChannelReconciler) collectConfigSignatures(fabricMainChannel *hlfv1alpha1.FabricMainChannel, sdk *fabsdk.FabricSDK, clientSet *kubernetes.Clientset, channelConfigBytes []byte) ([]*cb.ConfigSignature, error) {
+	var configSignatures []*cb.ConfigSignature
 
 	// Collect signatures from admin orderer organizations
 	for _, adminOrderer := range fabricMainChannel.Spec.AdminOrdererOrganizations {
@@ -487,7 +725,7 @@ func (r *FabricMainChannelReconciler) collectConfigSignatures(fabricMainChannel 
 	return configSignatures, nil
 }
 
-func (r *FabricMainChannelReconciler) createConfigSignature(sdk *fabsdk.FabricSDK, mspID string, fabricMainChannel *hlfv1alpha1.FabricMainChannel, clientSet *kubernetes.Clientset, channelConfigBytes []byte) (*common.ConfigSignature, error) {
+func (r *FabricMainChannelReconciler) createConfigSignature(sdk *fabsdk.FabricSDK, mspID string, fabricMainChannel *hlfv1alpha1.FabricMainChannel, clientSet *kubernetes.Clientset, channelConfigBytes []byte) (*cb.ConfigSignature, error) {
 	identityName := fmt.Sprintf("%s-sign", mspID)
 	idConfig, ok := fabricMainChannel.Spec.Identities[identityName]
 	if !ok {
@@ -527,8 +765,15 @@ func (r *FabricMainChannelReconciler) createConfigSignature(sdk *fabsdk.FabricSD
 }
 
 func (r *FabricMainChannelReconciler) handleReconcileError(ctx context.Context, fabricMainChannel *hlfv1alpha1.FabricMainChannel, err error) (reconcile.Result, error) {
+	reqLogger := r.Log.WithValues("channel", fabricMainChannel.Spec.Name)
+
+	reqLogger.Error(err, "Reconciliation failed",
+		"channel", fabricMainChannel.Spec.Name,
+		"namespace", fabricMainChannel.Namespace,
+	)
+
 	r.setConditionStatus(ctx, fabricMainChannel, hlfv1alpha1.FailedStatus, false, err, false)
-	return r.updateCRStatusOrFailReconcile(ctx, r.Log, fabricMainChannel)
+	return r.updateCRStatusOrFailReconcile(ctx, reqLogger, fabricMainChannel)
 }
 
 func (r *FabricMainChannelReconciler) setupResmgmtOptions(fabricMainChannel *hlfv1alpha1.FabricMainChannel) ([]resmgmt.RequestOption, []string) {
@@ -559,40 +804,78 @@ func (r *FabricMainChannelReconciler) fetchConfigBlock(resClient *resmgmt.Client
 }
 
 func (r *FabricMainChannelReconciler) createNewChannel(fabricMainChannel *hlfv1alpha1.FabricMainChannel) ([]byte, error) {
+	reqLogger := r.Log.WithValues("channel", fabricMainChannel.Spec.Name)
+
+	reqLogger.Info("Creating new channel configuration")
 	channelConfig, err := r.mapToConfigTX(fabricMainChannel)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "failed to map channel specification to configtx")
 	}
 
+	reqLogger.Info("Generating channel genesis block")
 	block, err := configtx.NewApplicationChannelGenesisBlock(channelConfig, fabricMainChannel.Spec.Name)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "failed to create application channel genesis block")
 	}
 
-	return proto.Marshal(block)
+	blockBytes, err := proto.Marshal(block)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to marshal genesis block")
+	}
+
+	reqLogger.Info("Successfully created channel genesis block",
+		"blockSize", len(blockBytes),
+		"blockNumber", block.Header.Number,
+	)
+	return blockBytes, nil
 }
 
 func (r *FabricMainChannelReconciler) joinOrderers(ctx context.Context, fabricMainChannel *hlfv1alpha1.FabricMainChannel, clientSet *kubernetes.Clientset, hlfClientSet *operatorv1.Clientset, blockBytes []byte) error {
-	for _, ordererOrg := range fabricMainChannel.Spec.OrdererOrganizations {
+	reqLogger := r.Log.WithValues("channel", fabricMainChannel.Spec.Name)
+
+	reqLogger.Info("Starting orderer join process",
+		"ordererOrganizations", len(fabricMainChannel.Spec.OrdererOrganizations),
+	)
+
+	for i, ordererOrg := range fabricMainChannel.Spec.OrdererOrganizations {
+		reqLogger.Info("Processing orderer organization",
+			"orgMSPID", ordererOrg.MSPID,
+			"orgIndex", i+1,
+			"totalOrgs", len(fabricMainChannel.Spec.OrdererOrganizations),
+			"externalOrderers", len(ordererOrg.ExternalOrderersToJoin),
+			"internalOrderers", len(ordererOrg.OrderersToJoin),
+		)
+
 		certPool, err := r.getCertPool(ordererOrg, clientSet, hlfClientSet)
 		if err != nil {
-			return err
+			return errors.Wrapf(err, "failed to get certificate pool for orderer organization %s", ordererOrg.MSPID)
 		}
 
 		tlsClientCert, err := r.getTLSClientCert(ordererOrg, fabricMainChannel, clientSet)
 		if err != nil {
-			return err
+			return errors.Wrapf(err, "failed to get TLS client certificate for orderer organization %s", ordererOrg.MSPID)
 		}
 
-		if err := r.joinExternalOrderers(ordererOrg, fabricMainChannel, blockBytes, certPool, tlsClientCert); err != nil {
-			return err
+		// Join external orderers
+		if len(ordererOrg.ExternalOrderersToJoin) > 0 {
+			if err := r.joinExternalOrderers(ordererOrg, fabricMainChannel, blockBytes, certPool, tlsClientCert); err != nil {
+				return errors.Wrapf(err, "failed to join external orderers for organization %s", ordererOrg.MSPID)
+			}
 		}
 
-		if err := r.joinInternalOrderers(ctx, ordererOrg, fabricMainChannel, hlfClientSet, blockBytes, certPool, tlsClientCert, clientSet); err != nil {
-			return err
+		// Join internal orderers
+		if len(ordererOrg.OrderersToJoin) > 0 {
+			if err := r.joinInternalOrderers(ctx, ordererOrg, fabricMainChannel, hlfClientSet, blockBytes, certPool, tlsClientCert, clientSet); err != nil {
+				return errors.Wrapf(err, "failed to join internal orderers for organization %s", ordererOrg.MSPID)
+			}
 		}
+
+		reqLogger.Info("Successfully processed orderer organization",
+			"orgMSPID", ordererOrg.MSPID,
+		)
 	}
 
+	reqLogger.Info("Successfully completed orderer join process")
 	return nil
 }
 
@@ -639,7 +922,7 @@ func (r *FabricMainChannelReconciler) updateChannelConfig(ctx context.Context, f
 		if !strings.Contains(err.Error(), "no differences detected between original and updated config") {
 			return errors.Wrap(err, "error calculating config update")
 		}
-		log.Infof("No differences detected between original and updated config")
+		r.Log.Info("No differences detected between original and updated config")
 		return nil
 	}
 
@@ -676,42 +959,65 @@ func (r *FabricMainChannelReconciler) updateChannelConfig(ctx context.Context, f
 		return errors.Wrap(err, "error saving channel configuration")
 	}
 
-	log.Infof("Channel configuration updated with transaction ID: %s", saveChannelResponse.TransactionID)
+	r.Log.Info("Channel configuration updated successfully",
+		"transactionID", saveChannelResponse.TransactionID,
+	)
 	return nil
 }
 
 func (r *FabricMainChannelReconciler) saveChannelConfig(ctx context.Context, fabricMainChannel *hlfv1alpha1.FabricMainChannel, resClient *resmgmt.Client) error {
+	reqLogger := r.Log.WithValues("channel", fabricMainChannel.Spec.Name)
+
+	reqLogger.Info("Fetching current channel configuration for storage")
 	ordererChannelBlock, err := r.fetchOrdererChannelBlock(resClient, fabricMainChannel)
 	if err != nil {
-		return err
+		return errors.Wrap(err, "failed to fetch orderer channel block")
 	}
 
 	cmnConfig, err := resource.ExtractConfigFromBlock(ordererChannelBlock)
 	if err != nil {
-		return errors.Wrap(err, "error extracting the config from block")
+		return errors.Wrap(err, "failed to extract configuration from block")
 	}
 
 	var buf bytes.Buffer
-	err = protolator.DeepMarshalJSON(&buf, cmnConfig)
-	if err != nil {
-		return errors.Wrap(err, "error converting block to JSON")
+	if err := protolator.DeepMarshalJSON(&buf, cmnConfig); err != nil {
+		return errors.Wrap(err, "failed to convert configuration to JSON")
 	}
 
 	configMapName := fmt.Sprintf("%s-config", fabricMainChannel.ObjectMeta.Name)
-	configMapNamespace := "default"
-	r.Log.Info("Saving channel config into configmap", "configmap", configMapName)
-	return r.createOrUpdateConfigMap(ctx, configMapName, configMapNamespace, buf.String())
+	configMapNamespace := fabricMainChannel.Namespace
+	if configMapNamespace == "" {
+		configMapNamespace = "default"
+	}
+
+	reqLogger.Info("Saving channel configuration to ConfigMap",
+		"configMapName", configMapName,
+		"configMapNamespace", configMapNamespace,
+		"configSize", buf.Len(),
+	)
+
+	if err := r.createOrUpdateConfigMap(ctx, configMapName, configMapNamespace, buf.String()); err != nil {
+		return errors.Wrap(err, "failed to create or update configuration ConfigMap")
+	}
+
+	reqLogger.Info("Successfully saved channel configuration to ConfigMap",
+		"configMapName", configMapName,
+	)
+	return nil
 }
 
 func (r *FabricMainChannelReconciler) createOrUpdateConfigMap(ctx context.Context, name, namespace, data string) error {
+	reqLogger := r.Log.WithValues("configMap", name, "namespace", namespace)
+
 	clientSet, err := utils.GetClientKubeWithConf(r.Config)
 	if err != nil {
-		return err
+		return errors.Wrap(err, "failed to get kubernetes client")
 	}
 
 	configMap, err := clientSet.CoreV1().ConfigMaps(namespace).Get(ctx, name, v1.GetOptions{})
 	if err != nil {
 		if apierrors.IsNotFound(err) {
+			reqLogger.Info("Creating new ConfigMap for channel configuration")
 			_, err = clientSet.CoreV1().ConfigMaps(namespace).Create(ctx, &corev1.ConfigMap{
 				ObjectMeta: v1.ObjectMeta{
 					Name:      name,
@@ -721,19 +1027,35 @@ func (r *FabricMainChannelReconciler) createOrUpdateConfigMap(ctx context.Contex
 					"channel.json": data,
 				},
 			}, v1.CreateOptions{})
-			return err
+			if err != nil {
+				return errors.Wrap(err, "failed to create ConfigMap")
+			}
+			reqLogger.Info("Successfully created ConfigMap")
+			return nil
 		}
-		return err
+		return errors.Wrap(err, "failed to get ConfigMap")
 	}
 
+	reqLogger.Info("Updating existing ConfigMap with new channel configuration")
+	if configMap.Data == nil {
+		configMap.Data = make(map[string]string)
+	}
 	configMap.Data["channel.json"] = data
+
 	_, err = clientSet.CoreV1().ConfigMaps(namespace).Update(ctx, configMap, v1.UpdateOptions{})
-	return err
+	if err != nil {
+		return errors.Wrap(err, "failed to update ConfigMap")
+	}
+
+	reqLogger.Info("Successfully updated ConfigMap")
+	return nil
 }
 
 func (r *FabricMainChannelReconciler) finalizeReconcile(ctx context.Context, fabricMainChannel *hlfv1alpha1.FabricMainChannel) (reconcile.Result, error) {
+	reqLogger := r.Log.WithValues("channel", fabricMainChannel.Spec.Name)
+
 	fabricMainChannel.Status.Status = hlfv1alpha1.RunningStatus
-	fabricMainChannel.Status.Message = "Channel setup completed"
+	fabricMainChannel.Status.Message = "Channel setup completed successfully"
 
 	fabricMainChannel.Status.Conditions.SetCondition(status.Condition{
 		Type:   status.ConditionType(fabricMainChannel.Status.Status),
@@ -741,24 +1063,34 @@ func (r *FabricMainChannelReconciler) finalizeReconcile(ctx context.Context, fab
 	})
 
 	if err := r.Status().Update(ctx, fabricMainChannel); err != nil {
-		return reconcile.Result{}, err
+		reqLogger.Error(err, "Failed to update status to running")
+		return reconcile.Result{}, errors.Wrap(err, "failed to update status")
 	}
+
+	reqLogger.Info("Successfully completed main channel reconciliation",
+		"channel", fabricMainChannel.Spec.Name,
+		"namespace", fabricMainChannel.Namespace,
+		"status", fabricMainChannel.Status.Status,
+	)
 
 	r.setConditionStatus(ctx, fabricMainChannel, hlfv1alpha1.RunningStatus, true, nil, false)
-	return r.updateCRStatusOrFailReconcile(ctx, r.Log, fabricMainChannel)
+	return r.updateCRStatusOrFailReconcile(ctx, reqLogger, fabricMainChannel)
 }
 
-var (
-	ErrClientK8s = errors.New("k8sAPIClientError")
-)
-
-func (r *FabricMainChannelReconciler) updateCRStatusOrFailReconcile(ctx context.Context, log logr.Logger, p *hlfv1alpha1.FabricMainChannel) (
-	reconcile.Result, error) {
+func (r *FabricMainChannelReconciler) updateCRStatusOrFailReconcile(ctx context.Context, log logr.Logger, p *hlfv1alpha1.FabricMainChannel) (reconcile.Result, error) {
 	if err := r.Status().Update(ctx, p); err != nil {
-		log.Error(err, fmt.Sprintf("%v failed to update the application status", ErrClientK8s))
-		return reconcile.Result{}, err
+		log.Error(err, "Failed to update main channel status",
+			"channel", p.Name,
+			"namespace", p.Namespace,
+		)
+		return reconcile.Result{}, errors.Wrap(err, "failed to update main channel status")
 	}
+
 	if p.Status.Status == hlfv1alpha1.FailedStatus {
+		log.Info("Main channel in failed status, requeuing",
+			"channel", p.Name,
+			"requeueAfter", "5m",
+		)
 		return reconcile.Result{
 			RequeueAfter: 5 * time.Minute,
 		}, nil
@@ -767,6 +1099,8 @@ func (r *FabricMainChannelReconciler) updateCRStatusOrFailReconcile(ctx context.
 }
 
 func (r *FabricMainChannelReconciler) setConditionStatus(ctx context.Context, p *hlfv1alpha1.FabricMainChannel, conditionType hlfv1alpha1.DeploymentStatus, statusFlag bool, err error, statusUnknown bool) (update bool) {
+	reqLogger := r.Log.WithValues("channel", p.Name)
+
 	statusStr := func() corev1.ConditionStatus {
 		if statusUnknown {
 			return corev1.ConditionUnknown
@@ -777,17 +1111,26 @@ func (r *FabricMainChannelReconciler) setConditionStatus(ctx context.Context, p 
 			return corev1.ConditionFalse
 		}
 	}
+
 	if p.Status.Status != conditionType {
+		reqLogger.Info("Updating main channel status",
+			"previousStatus", p.Status.Status,
+			"newStatus", conditionType,
+		)
+
 		depCopy := client.MergeFrom(p.DeepCopy())
 		p.Status.Status = conditionType
-		err = r.Status().Patch(ctx, p, depCopy)
-		if err != nil {
-			log.Warnf("Failed to update status to %s: %v", conditionType, err)
+		if patchErr := r.Status().Patch(ctx, p, depCopy); patchErr != nil {
+			reqLogger.Error(patchErr, "Failed to patch main channel status",
+				"targetStatus", conditionType,
+			)
 		}
 	}
+
 	if err != nil {
 		p.Status.Message = err.Error()
 	}
+
 	condition := func() status.Condition {
 		if err != nil {
 			return status.Condition{
@@ -802,6 +1145,7 @@ func (r *FabricMainChannelReconciler) setConditionStatus(ctx context.Context, p 
 			Status: statusStr(),
 		}
 	}
+
 	return p.Status.Conditions.SetCondition(condition())
 }
 
@@ -1034,7 +1378,7 @@ func (r *FabricMainChannelReconciler) mapToConfigTX(channel *hlfv1alpha1.FabricM
 	} else {
 		return configtx.Channel{}, fmt.Errorf("orderer type %s not supported", ordererType)
 	}
-	log.Infof("Orderer type: %s", ordererType)
+	r.Log.Info("Configured orderer type", "ordererType", ordererType)
 	ordConfigtx := configtx.Orderer{
 		OrdererType:      ordererType,
 		Organizations:    ordererOrgs,
@@ -1319,7 +1663,7 @@ type Pem struct {
 	Pem string
 }
 
-func CreateConfigUpdateEnvelope(channelID string, configUpdate *common.ConfigUpdate) ([]byte, error) {
+func CreateConfigUpdateEnvelope(channelID string, configUpdate *cb.ConfigUpdate) ([]byte, error) {
 	configUpdate.ChannelId = channelID
 	configUpdateData, err := proto.Marshal(configUpdate)
 	if err != nil {
@@ -1349,8 +1693,7 @@ func updateApplicationChannelConfigTx(currentConfigTX configtx.ConfigTx, newConf
 	if err != nil {
 		return errors.Wrapf(err, "failed to get application configuration")
 	}
-	log.Infof("Current organizations %v", app.Organizations)
-	log.Infof("New organizations %v", newConfigTx.Application.Organizations)
+	// Comparing application organizations
 	for _, channelPeerOrg := range app.Organizations {
 		deleted := true
 		for _, organization := range newConfigTx.Application.Organizations {
@@ -1360,7 +1703,7 @@ func updateApplicationChannelConfigTx(currentConfigTX configtx.ConfigTx, newConf
 			}
 		}
 		if deleted {
-			log.Infof("Removing organization %s", channelPeerOrg.Name)
+			// Removing organization from application
 			currentConfigTX.Application().RemoveOrganization(channelPeerOrg.Name)
 		}
 	}
@@ -1373,7 +1716,7 @@ func updateApplicationChannelConfigTx(currentConfigTX configtx.ConfigTx, newConf
 			}
 		}
 		if !found {
-			log.Infof("Adding organization %v", organization)
+			// Adding organization to application
 			err = currentConfigTX.Application().SetOrganization(organization)
 			if err != nil {
 				return errors.Wrapf(err, "failed to set organization %s", organization.Name)
@@ -1389,12 +1732,11 @@ func updateApplicationChannelConfigTx(currentConfigTX configtx.ConfigTx, newConf
 	}
 	if newConfigTx.Application.ACLs != nil {
 		// compare current acls with new acls
-		currentACLs, err := currentConfigTX.Application().ACLs()
+		_, err := currentConfigTX.Application().ACLs()
 		if err != nil {
 			return errors.Wrapf(err, "failed to get current ACLs")
 		}
-		log.Infof("Current ACLs: %v", currentACLs)
-		log.Infof("New ACLs: %v", newConfigTx.Application.ACLs)
+		// Updating application ACLs
 		// compare them to see if we have to set new ACLs
 
 		var acls []string
@@ -1434,14 +1776,14 @@ func updateChannelConfigTx(currentConfigTX configtx.ConfigTx, newConfigTx config
 	if err != nil {
 		return errors.Wrapf(err, "failed to get application capabilities")
 	}
-	log.Infof("Current capabilities: %v", currentCapabilities)
+	// Updating channel capabilities
 	for _, capability := range currentCapabilities {
 		err = currentConfigTX.Channel().RemoveCapability(capability)
 		if err != nil {
 			return errors.Wrapf(err, "failed to remove capability %s", capability)
 		}
 	}
-	log.Infof("New capabilities: %v", newConfigTx.Capabilities)
+	// Adding new channel capabilities
 	for _, capability := range newConfigTx.Capabilities {
 		err = currentConfigTX.Channel().AddCapability(capability)
 		if err != nil {
@@ -1457,15 +1799,15 @@ func updateOrdererChannelConfigTx(currentConfigTX configtx.ConfigTx, newConfigTx
 	if err != nil {
 		return errors.Wrapf(err, "failed to get application configuration")
 	}
-	log.Infof("New config tx: %v", newConfigTx.Orderer)
+	// Updating orderer configuration
 
-	currentConfig, err := currentConfigTX.Orderer().Configuration()
+	_, err = currentConfigTX.Orderer().Configuration()
 	if err != nil {
 		return errors.Wrapf(err, "failed to get current orderer configuration")
 	}
-	log.Infof("Current config before all updates: %v", currentConfig)
+	// Current orderer configuration loaded
 	if newConfigTx.Orderer.OrdererType == orderer.ConsensusTypeEtcdRaft {
-		log.Infof("updateOrdererChannelConfigTx: Updating policies for etcdraft")
+		// Updating orderer policies for etcdraft consensus
 		err := currentConfigTX.Orderer().SetPolicies(
 			newConfigTx.Orderer.Policies,
 		)
@@ -1491,13 +1833,13 @@ func updateOrdererChannelConfigTx(currentConfigTX configtx.ConfigTx, newConfigTx
 			}
 
 			if deleted {
-				log.Infof("Removing consenter %s:%d", consenter.Address.Host, consenter.Address.Port)
+				// Removing consenter from etcdraft configuration
 				err = currentConfigTX.Orderer().RemoveConsenter(consenter)
 				if err != nil {
 					return errors.Wrapf(err, "failed to remove consenter %s:%d", consenter.Address.Host, consenter.Address.Port)
 				}
 			} else if needsUpdate {
-				log.Infof("Updating certificates for consenter %s:%d", consenter.Address.Host, consenter.Address.Port)
+				// Updating certificates for consenter
 				err = currentConfigTX.Orderer().RemoveConsenter(consenter)
 				if err != nil {
 					return errors.Wrapf(err, "failed to remove consenter %s:%d for cert update", consenter.Address.Host, consenter.Address.Port)
@@ -1518,7 +1860,7 @@ func updateOrdererChannelConfigTx(currentConfigTX configtx.ConfigTx, newConfigTx
 				}
 			}
 			if !found {
-				log.Infof("Adding consenter %s:%d", newConsenter.Address.Host, newConsenter.Address.Port)
+				// Adding new consenter to etcdraft configuration
 				err = currentConfigTX.Orderer().AddConsenter(newConsenter)
 				if err != nil {
 					return errors.Wrapf(err, "failed to add consenter %s:%d", newConsenter.Address.Host, newConsenter.Address.Port)
@@ -1584,7 +1926,7 @@ func updateOrdererChannelConfigTx(currentConfigTX configtx.ConfigTx, newConfigTx
 		if err != nil {
 			return errors.Wrapf(err, "failed to set orderer configuration")
 		}
-		log.Infof("updateOrdererChannelConfigTx: Orderer type: %s", ord.OrdererType)
+		// Updating BFT orderer configuration
 		// update policies but blockValidation
 		err = currentConfigTX.Orderer().SetPolicy("Admins", newConfigTx.Orderer.Policies["Admins"])
 		if err != nil {
@@ -1609,14 +1951,14 @@ func updateOrdererChannelConfigTx(currentConfigTX configtx.ConfigTx, newConfigTx
 		case orderer.ConsensusStateMaintenance:
 			state = orderer.ConsensusStateMaintenance
 		}
-		log.Infof("updateOrdererChannelConfigTx: Setting consensus state to %s", state)
+		// Setting orderer consensus state
 		err := currentConfigTX.Orderer().SetConsensusState(state)
 		if err != nil {
 			return err
 		}
-		log.Infof("updateOrdererChannelConfigTx: Consensus state set to %s", state)
+		// Successfully set orderer consensus state
 	} else {
-		log.Infof("updateOrdererChannelConfigTx: Consensus state is not set")
+		// Consensus state not specified in configuration
 	}
 	for _, channelOrdOrg := range ord.Organizations {
 		deleted := true
@@ -1627,7 +1969,7 @@ func updateOrdererChannelConfigTx(currentConfigTX configtx.ConfigTx, newConfigTx
 			}
 		}
 		if deleted {
-			log.Infof("Removing organization %s", channelOrdOrg.Name)
+			// Removing organization from orderer configuration
 			currentConfigTX.Orderer().RemoveOrganization(channelOrdOrg.Name)
 		}
 	}
@@ -1690,7 +2032,7 @@ func updateOrdererChannelConfigTx(currentConfigTX configtx.ConfigTx, newConfigTx
 				return errors.Wrapf(err, "failed to set organization %s", organization.Name)
 			}
 		} else {
-			log.Infof("Adding organization %s", organization.Name)
+			// Adding organization to orderer configuration
 			err = currentConfigTX.Orderer().SetOrganization(organization)
 			if err != nil {
 				return errors.Wrapf(err, "failed to set organization %s", organization.Name)
@@ -1736,11 +2078,11 @@ func updateOrdererChannelConfigTx(currentConfigTX configtx.ConfigTx, newConfigTx
 		}
 	}
 	// display configuration
-	ordererConfig, err := currentConfigTX.Orderer().Configuration()
+	_, err = currentConfigTX.Orderer().Configuration()
 	if err != nil {
 		return errors.Wrapf(err, "failed to get orderer configuration")
 	}
-	log.Infof("updateOrdererChannelConfigTx: Orderer configuration: %v", ordererConfig)
+	// Orderer configuration updated successfully
 	// set configuration
 
 	return nil

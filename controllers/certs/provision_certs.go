@@ -377,14 +377,14 @@ func GetClient(ca FabricCAParams) (*lib.Client, error) {
 	if err != nil {
 		return nil, nil
 	}
-	
+
 	client := &lib.Client{
 		HomeDir: caHomeDir,
 		Config: &lib.ClientConfig{
 			URL: ca.URL,
 		},
 	}
-	
+
 	// Only configure TLS if TLS certificate is provided
 	if ca.TLSCert != "" {
 		// create temporary file
@@ -407,7 +407,7 @@ func GetClient(ca FabricCAParams) (*lib.Client, error) {
 			Enabled: false,
 		}
 	}
-	
+
 	err = client.Init()
 	if err != nil {
 		return nil, err

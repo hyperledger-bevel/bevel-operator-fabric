@@ -12,7 +12,7 @@ import (
 )
 
 // TestKeyBehaviorDemonstration is a focused test that specifically demonstrates
-// the key behaviors requested: 
+// the key behaviors requested:
 // - Re-enrollment preserves the public key
 // - Fresh enrollment generates new public keys
 func TestKeyBehaviorDemonstration(t *testing.T) {
@@ -21,7 +21,7 @@ func TestKeyBehaviorDemonstration(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	
+
 	// Setup Fabric CA container
 	caContainer, err := setupFabricCA(ctx)
 	require.NoError(t, err, "Failed to setup Fabric CA container")
@@ -31,11 +31,11 @@ func TestKeyBehaviorDemonstration(t *testing.T) {
 
 	t.Run("key behavior demonstration", func(t *testing.T) {
 		// === PART 1: DEMONSTRATE RE-ENROLLMENT PRESERVES PUBLIC KEY ===
-		
+
 		// Register and enroll first user
 		userA := "demo_user_a"
 		secretA := "demo_secret_a"
-		
+
 		_, err := RegisterUser(RegisterUserRequest{
 			TLSCert:      "",
 			URL:          caContainer.URI,
@@ -92,15 +92,15 @@ func TestKeyBehaviorDemonstration(t *testing.T) {
 				"Initial cert public key: %v\n"+
 				"Re-enrolled cert public key: %v",
 			pubKeyA1, pubKeyA2)
-		
+
 		fmt.Printf("✅ PASS: Re-enrollment preserved public key for user %s\n", userA)
 
 		// === PART 2: DEMONSTRATE FRESH ENROLLMENT GENERATES NEW PUBLIC KEYS ===
-		
+
 		// Register and enroll second user (fresh enrollment)
 		userB := "demo_user_b"
 		secretB := "demo_secret_b"
-		
+
 		_, err = RegisterUser(RegisterUserRequest{
 			TLSCert:      "",
 			URL:          caContainer.URI,
@@ -139,11 +139,11 @@ func TestKeyBehaviorDemonstration(t *testing.T) {
 				"User A public key: %v\n"+
 				"User B public key: %v",
 			pubKeyA1, pubKeyB1)
-		
+
 		fmt.Printf("✅ PASS: Fresh enrollment generated new public key for user %s\n", userB)
 
 		// === PART 3: DEMONSTRATE REPEATED FRESH ENROLLMENTS GENERATE NEW KEYS ===
-		
+
 		// Second enrollment of user A (should generate new key since it's a fresh enrollment)
 		certA3, _, _, err := EnrollUser(EnrollUserRequest{
 			TLSCert:    "",
@@ -166,7 +166,7 @@ func TestKeyBehaviorDemonstration(t *testing.T) {
 			"❌ FAILED: Second fresh enrollment should generate a different key from first enrollment")
 		assert.False(t, compareECDSAPublicKeys(pubKeyA2, pubKeyA3),
 			"❌ FAILED: Second fresh enrollment should generate a different key from re-enrollment")
-		
+
 		fmt.Printf("✅ PASS: Second fresh enrollment of user %s generated a new public key\n", userA)
 
 		// === SUMMARY OUTPUT ===

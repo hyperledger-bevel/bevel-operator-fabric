@@ -64,6 +64,123 @@ type FabricCAReconciler struct {
 	MaxHistory int
 }
 
+// ConfigValidator validates CA configuration
+type ConfigValidator struct{}
+
+func (v *ConfigValidator) ValidateCA(ca *hlfv1alpha1.FabricCA) error {
+	var errs []error
+
+	if err := v.validateCredentialStore(ca); err != nil {
+		errs = append(errs, err)
+	}
+
+	if err := v.validateNetworking(ca); err != nil {
+		errs = append(errs, err)
+	}
+
+	if err := v.validateResources(ca); err != nil {
+		errs = append(errs, err)
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("validation failed: %v", errs)
+	}
+
+	return nil
+}
+
+func (v *ConfigValidator) validateCredentialStore(ca *hlfv1alpha1.FabricCA) error {
+	switch ca.Spec.CredentialStore {
+	case hlfv1alpha1.CredentialStoreVault:
+		return v.validateVaultConfig(ca)
+	case hlfv1alpha1.CredentialStoreKubernetes, "":
+		return v.validateKubernetesConfig(ca)
+	default:
+		return fmt.Errorf("unsupported credential store: %s", ca.Spec.CredentialStore)
+	}
+}
+
+func (v *ConfigValidator) validateVaultConfig(ca *hlfv1alpha1.FabricCA) error {
+	if ca.Spec.Vault == nil {
+		return errors.New("vault configuration is required when using vault credential store")
+	}
+	return nil
+}
+
+func (v *ConfigValidator) validateKubernetesConfig(ca *hlfv1alpha1.FabricCA) error {
+	// Basic validation for Kubernetes credential store
+	return nil
+}
+
+func (v *ConfigValidator) validateNetworking(ca *hlfv1alpha1.FabricCA) error {
+	if len(ca.Spec.Hosts) == 0 {
+		return errors.New("at least one host is required")
+	}
+	return nil
+}
+
+func (v *ConfigValidator) validateResources(ca *hlfv1alpha1.FabricCA) error {
+	if ca.Spec.Storage.Size == "" {
+		return errors.New("storage size is required")
+	}
+	return nil
+}
+
+// LeaseManager manages certificate renewal leases
+type LeaseManager struct {
+	client    kubernetes.Interface
+	leaseName string
+	namespace string
+	logger    logr.Logger
+}
+
+func NewLeaseManager(client kubernetes.Interface, leaseName, namespace string, logger logr.Logger) *LeaseManager {
+	return &LeaseManager{
+		client:    client,
+		leaseName: leaseName,
+		namespace: namespace,
+		logger:    logger,
+	}
+}
+
+func (lm *LeaseManager) AcquireWithRetry(ctx context.Context, holderIdentity string, ttl int32, maxRetries int) (bool, error) {
+	clientSet, ok := lm.client.(*kubernetes.Clientset)
+	if !ok {
+		return false, errors.New("client is not a kubernetes.Clientset")
+	}
+
+	for i := 0; i < maxRetries; i++ {
+		acquired, err := utils.AcquireLease(ctx, clientSet, lm.leaseName, lm.namespace, holderIdentity, ttl)
+		if err != nil {
+			lm.logger.V(1).Info("Lease acquisition attempt failed", "attempt", i+1, "error", err)
+			time.Sleep(time.Second)
+			continue
+		}
+		if acquired {
+			lm.logger.Info("Lease acquired successfully", "holderIdentity", holderIdentity)
+			return true, nil
+		}
+		time.Sleep(time.Second)
+	}
+	lm.logger.Info("Failed to acquire lease after retries", "maxRetries", maxRetries, "holderIdentity", holderIdentity)
+	return false, nil
+}
+
+func (lm *LeaseManager) Release(ctx context.Context, holderIdentity string) error {
+	clientSet, ok := lm.client.(*kubernetes.Clientset)
+	if !ok {
+		return errors.New("client is not a kubernetes.Clientset")
+	}
+
+	err := utils.ReleaseLease(ctx, clientSet, lm.leaseName, lm.namespace, holderIdentity)
+	if err != nil {
+		lm.logger.Error(err, "Failed to release lease", "holderIdentity", holderIdentity)
+		return err
+	}
+	lm.logger.Info("Lease released successfully", "holderIdentity", holderIdentity)
+	return nil
+}
+
 func parseECDSAPrivateKey(contents []byte) (*ecdsa.PrivateKey, error) {
 	block, _ := pem.Decode(contents)
 	key, err := x509.ParsePKCS8PrivateKey(block.Bytes)
@@ -1028,13 +1145,12 @@ func Reconcile(
 	releaseName := req.Name
 	err := r.Get(ctx, req.NamespacedName, hlf)
 	if err != nil {
-		log.Debugf("Error getting the object %s error=%v", req.NamespacedName, err)
 		if apierrors.IsNotFound(err) {
 			reqLogger.Info("CA resource not found. Ignoring since object must be deleted.")
 			return ctrl.Result{}, nil
 		}
-		reqLogger.Error(err, "Failed to get CA.")
-		return ctrl.Result{}, err
+		reqLogger.Error(err, "Failed to get CA", "namespacedName", req.NamespacedName)
+		return ctrl.Result{}, errors.Wrapf(err, "failed to get CA %s", req.NamespacedName)
 	}
 	isFabricCAMarkedToBeDeleted := hlf.GetDeletionTimestamp() != nil
 	if isFabricCAMarkedToBeDeleted {
@@ -1103,7 +1219,7 @@ func Reconcile(
 			}
 		}
 	}
-	log.Debugf("Release %s exists=%v", releaseName, exists)
+	reqLogger.Info("Release status check", "release", releaseName, "exists", exists)
 	clientSet, err := utils.GetClientKubeWithConf(r.Config)
 	if err != nil {
 		return ctrl.Result{}, err
@@ -1111,22 +1227,28 @@ func Reconcile(
 	if hlf.Spec.CredentialStore == "" {
 		hlf.Spec.CredentialStore = "kubernetes"
 	}
+
+	// Validate configuration
+	validator := &ConfigValidator{}
+	if err := validator.ValidateCA(hlf); err != nil {
+		reqLogger.Error(err, "Configuration validation failed")
+		return ctrl.Result{}, errors.Wrapf(err, "configuration validation failed for CA %s", hlf.Name)
+	}
 	if exists {
 		// update
-		log.Debugf("Release %s exists, updating", releaseName)
+		reqLogger.Info("Updating existing release", "release", releaseName)
 		s, err := GetCAState(r.ClientSet, hlf, releaseName, ns)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
 		err = r.Get(ctx, req.NamespacedName, hlf)
 		if err != nil {
-			log.Debugf("Error getting the object %s error=%v", req.NamespacedName, err)
 			if apierrors.IsNotFound(err) {
 				reqLogger.Info("CA resource not found. Ignoring since object must be deleted.")
 				return ctrl.Result{}, nil
 			}
-			reqLogger.Error(err, "Failed to get CA.")
-			return ctrl.Result{}, err
+			reqLogger.Error(err, "Failed to get CA during update", "namespacedName", req.NamespacedName)
+			return ctrl.Result{}, errors.Wrapf(err, "failed to get CA %s during update", req.NamespacedName)
 		}
 		fca := hlf.DeepCopy()
 		fca.Status.Status = s.Status
@@ -1143,7 +1265,8 @@ func Reconcile(
 		if helmStatus.Info.Status != release.StatusPendingUpgrade {
 			c, err := GetConfig(hlf, clientSet, releaseName, req.Namespace)
 			if err != nil {
-				return ctrl.Result{}, err
+				reqLogger.Error(err, "Failed to get configuration for chart upgrade", "ca", hlf.Name)
+				return ctrl.Result{}, errors.Wrapf(err, "failed to get configuration for CA %s", hlf.Name)
 			}
 			inrec, err := json.Marshal(c)
 			if err != nil {
@@ -1167,34 +1290,32 @@ func Reconcile(
 			}
 			release, err := cmd.Run(releaseName, ch, inInterface)
 			if err != nil {
-				setConditionStatus(hlf, hlfv1alpha1.FailedStatus, false, err, false)
+				reqLogger.Error(err, "Failed to upgrade chart", "ca", hlf.Name, "release", releaseName)
+				setConditionStatus(hlf, hlfv1alpha1.FailedStatus, false,
+					errors.Wrapf(err, "chart upgrade failed for CA %s", hlf.Name), false)
 				return r.updateCRStatusOrFailReconcile(ctx, r.Log, hlf)
 			}
-			log.Debugf("Chart upgraded %s", release.Name)
+			reqLogger.Info("Chart upgraded successfully", "release", release.Name, "namespace", ns)
 		}
 		if !reflect.DeepEqual(fca.Status, hlf.Status) {
 			if err := r.Status().Update(ctx, fca); err != nil {
-				log.Debugf("Error updating the status: %v", err)
-				return ctrl.Result{}, err
+				reqLogger.Error(err, "Failed to update CA status", "ca", fca.Name)
+				return ctrl.Result{}, errors.Wrapf(err, "failed to update status for CA %s", fca.Name)
 			}
 		}
-		reqLogger.Info(fmt.Sprintf("CA Status %s", s.Status))
+		reqLogger.Info("CA status update", "ca", fca.Name, "status", string(s.Status))
 		switch s.Status {
 		case hlfv1alpha1.PendingStatus:
-			log.Infof("CA %s in pending status, refreshing state in 10 seconds", fca.Name)
-			return ctrl.Result{
-				RequeueAfter: 10 * time.Second,
-			}, nil
+			reqLogger.Info("CA in pending status", "ca", fca.Name)
+			return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 		case hlfv1alpha1.RunningStatus:
-			return ctrl.Result{
-				RequeueAfter: 60 * time.Minute,
-			}, nil
+			reqLogger.V(1).Info("CA running normally", "ca", fca.Name)
+			return ctrl.Result{RequeueAfter: 60 * time.Minute}, nil
 		case hlfv1alpha1.FailedStatus:
-			log.Infof("CA %s in failed status, refreshing state in 10 seconds", fca.Name)
-			return ctrl.Result{
-				RequeueAfter: 10 * time.Second,
-			}, nil
+			reqLogger.Error(nil, "CA in failed status", "ca", fca.Name, "message", fca.Status.Message)
+			return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 		default:
+			reqLogger.Info("CA in unknown status", "ca", fca.Name, "status", string(s.Status))
 			return ctrl.Result{}, nil
 		}
 	} else {
@@ -1212,8 +1333,8 @@ func Reconcile(
 		}
 		c, err := GetConfig(hlf, clientSet, name, req.Namespace)
 		if err != nil {
-			reqLogger.Error(err, "Failed to get config")
-			return ctrl.Result{}, err
+			reqLogger.Error(err, "Failed to get configuration for chart installation", "ca", hlf.Name)
+			return ctrl.Result{}, errors.Wrapf(err, "failed to get configuration for CA %s", hlf.Name)
 		}
 		var inInterface map[string]interface{}
 		inrec, err := json.Marshal(c)
@@ -1227,10 +1348,12 @@ func Reconcile(
 		}
 		release, err := cmd.Run(ch, inInterface)
 		if err != nil {
-			setConditionStatus(hlf, hlfv1alpha1.FailedStatus, false, err, false)
+			reqLogger.Error(err, "Failed to install chart", "ca", hlf.Name, "release", releaseName)
+			setConditionStatus(hlf, hlfv1alpha1.FailedStatus, false,
+				errors.Wrapf(err, "chart installation failed for CA %s", hlf.Name), false)
 			return r.updateCRStatusOrFailReconcile(ctx, r.Log, hlf)
 		}
-		log.Debugf("Chart installed %s", release.Name)
+		reqLogger.Info("Chart installed successfully", "release", release.Name, "namespace", ns)
 		hlf.Status.Status = hlfv1alpha1.PendingStatus
 		hlf.Status.Conditions.SetCondition(status.Condition{
 			Type:               "DEPLOYED",
@@ -1240,7 +1363,7 @@ func Reconcile(
 		if err := r.Status().Update(ctx, hlf); err != nil {
 			return ctrl.Result{}, err
 		}
-		log.Info("CA is installed and must run successfully")
+		reqLogger.Info("CA installation completed, waiting for startup", "ca", hlf.Name)
 		return ctrl.Result{
 			Requeue:      false,
 			RequeueAfter: 10 * time.Second,

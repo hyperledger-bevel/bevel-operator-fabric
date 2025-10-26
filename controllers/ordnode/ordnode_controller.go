@@ -59,7 +59,138 @@ type FabricOrdererNodeReconciler struct {
 	MaxHistory                 int
 }
 
+// ConfigValidator validates orderer node configuration
+type ConfigValidator struct{}
+
+func (v *ConfigValidator) ValidateOrdererNode(node *hlfv1alpha1.FabricOrdererNode) error {
+	var errs []error
+
+	if err := v.validateCredentialStore(node); err != nil {
+		errs = append(errs, err)
+	}
+
+	if err := v.validateNetworking(node); err != nil {
+		errs = append(errs, err)
+	}
+
+	if err := v.validateResources(node); err != nil {
+		errs = append(errs, err)
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("validation failed: %v", errs)
+	}
+
+	return nil
+}
+
+func (v *ConfigValidator) validateCredentialStore(node *hlfv1alpha1.FabricOrdererNode) error {
+	switch node.Spec.CredentialStore {
+	case hlfv1alpha1.CredentialStoreVault:
+		return v.validateVaultConfig(node)
+	case hlfv1alpha1.CredentialStoreKubernetes, "":
+		return v.validateFabricCAConfig(node)
+	default:
+		return fmt.Errorf("unsupported credential store: %s", node.Spec.CredentialStore)
+	}
+}
+
+func (v *ConfigValidator) validateVaultConfig(node *hlfv1alpha1.FabricOrdererNode) error {
+	if node.Spec.Secret.Enrollment.Component.Vault == nil {
+		return errors.New("vault configuration is required when using vault credential store")
+	}
+	if node.Spec.Secret.Enrollment.TLS.Vault == nil {
+		return errors.New("vault TLS configuration is required when using vault credential store")
+	}
+	return nil
+}
+
+func (v *ConfigValidator) validateFabricCAConfig(node *hlfv1alpha1.FabricOrdererNode) error {
+	if node.Spec.Secret.Enrollment.Component.Cahost == "" {
+		return errors.New("CA host is required when using kubernetes credential store")
+	}
+	if node.Spec.Secret.Enrollment.Component.Enrollid == "" {
+		return errors.New("enrollment ID is required when using kubernetes credential store")
+	}
+	if node.Spec.Secret.Enrollment.Component.Enrollsecret == "" {
+		return errors.New("enrollment secret is required when using kubernetes credential store")
+	}
+	return nil
+}
+
+func (v *ConfigValidator) validateNetworking(node *hlfv1alpha1.FabricOrdererNode) error {
+	if node.Spec.MspID == "" {
+		return errors.New("MSP ID is required")
+	}
+	return nil
+}
+
+func (v *ConfigValidator) validateResources(node *hlfv1alpha1.FabricOrdererNode) error {
+	if node.Spec.Storage.Size == "" {
+		return errors.New("storage size is required")
+	}
+	if node.Spec.Replicas < 1 {
+		return errors.New("replicas must be at least 1")
+	}
+	return nil
+}
+
 const ordererNodeFinalizer = "finalizer.orderernode.hlf.kungfusoftware.es"
+
+// LeaseManager manages certificate renewal leases
+type LeaseManager struct {
+	client    kubernetes.Interface
+	leaseName string
+	namespace string
+	logger    logr.Logger
+}
+
+func NewLeaseManager(client kubernetes.Interface, leaseName, namespace string, logger logr.Logger) *LeaseManager {
+	return &LeaseManager{
+		client:    client,
+		leaseName: leaseName,
+		namespace: namespace,
+		logger:    logger,
+	}
+}
+
+func (lm *LeaseManager) AcquireWithRetry(ctx context.Context, holderIdentity string, ttl int32, maxRetries int) (bool, error) {
+	clientSet, ok := lm.client.(*kubernetes.Clientset)
+	if !ok {
+		return false, errors.New("client is not a kubernetes.Clientset")
+	}
+
+	for i := 0; i < maxRetries; i++ {
+		acquired, err := utils.AcquireLease(ctx, clientSet, lm.leaseName, lm.namespace, holderIdentity, ttl)
+		if err != nil {
+			lm.logger.V(1).Info("Lease acquisition attempt failed", "attempt", i+1, "error", err)
+			time.Sleep(time.Second)
+			continue
+		}
+		if acquired {
+			lm.logger.Info("Lease acquired successfully", "holderIdentity", holderIdentity)
+			return true, nil
+		}
+		time.Sleep(time.Second)
+	}
+	lm.logger.Info("Failed to acquire lease after retries", "maxRetries", maxRetries, "holderIdentity", holderIdentity)
+	return false, nil
+}
+
+func (lm *LeaseManager) Release(ctx context.Context, holderIdentity string) error {
+	clientSet, ok := lm.client.(*kubernetes.Clientset)
+	if !ok {
+		return errors.New("client is not a kubernetes.Clientset")
+	}
+
+	err := utils.ReleaseLease(ctx, clientSet, lm.leaseName, lm.namespace, holderIdentity)
+	if err != nil {
+		lm.logger.Error(err, "Failed to release lease", "holderIdentity", holderIdentity)
+		return err
+	}
+	lm.logger.Info("Lease released successfully", "holderIdentity", holderIdentity)
+	return nil
+}
 
 func (r *FabricOrdererNodeReconciler) finalizeOrderer(reqLogger logr.Logger, m *hlfv1alpha1.FabricOrdererNode) error {
 	ns := m.Namespace
@@ -117,13 +248,12 @@ func (r *FabricOrdererNodeReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	}
 	err = r.Get(ctx, req.NamespacedName, fabricOrdererNode)
 	if err != nil {
-		log.Printf("Error getting the object %s error=%v", req.NamespacedName, err)
 		if apierrors.IsNotFound(err) {
 			reqLogger.Info("Orderer resource not found. Ignoring since object must be deleted.")
 			return ctrl.Result{}, nil
 		}
-		reqLogger.Error(err, "Failed to get Orderer.")
-		return ctrl.Result{}, err
+		reqLogger.Error(err, "Failed to get orderer node", "namespacedName", req.NamespacedName)
+		return ctrl.Result{}, errors.Wrapf(err, "failed to get orderer node %s", req.NamespacedName)
 	}
 	isMemcachedMarkedToBeDeleted := fabricOrdererNode.GetDeletionTimestamp() != nil
 	if isMemcachedMarkedToBeDeleted {
@@ -146,6 +276,14 @@ func (r *FabricOrdererNodeReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	}
 	if fabricOrdererNode.Spec.CredentialStore == "" {
 		fabricOrdererNode.Spec.CredentialStore = "kubernetes"
+	}
+
+	// Validate configuration
+	validator := &ConfigValidator{}
+	if err := validator.ValidateOrdererNode(fabricOrdererNode); err != nil {
+		reqLogger.Error(err, "Configuration validation failed")
+		r.setConditionStatus(ctx, fabricOrdererNode, hlfv1alpha1.FailedStatus, false, err, false)
+		return r.updateCRStatusOrFailReconcile(ctx, r.Log, fabricOrdererNode)
 	}
 	cmdStatus := action.NewStatus(cfg)
 	exists := true
@@ -194,7 +332,7 @@ func (r *FabricOrdererNodeReconciler) Reconcile(ctx context.Context, req ctrl.Re
 			}
 		}
 	}
-	log.Printf("Release %s exists=%v", releaseName, exists)
+	reqLogger.Info("Release status check", "release", releaseName, "exists", exists)
 	clientSet, err := utils.GetClientKubeWithConf(r.Config)
 	if err != nil {
 		return ctrl.Result{}, err
@@ -233,45 +371,37 @@ func (r *FabricOrdererNodeReconciler) Reconcile(ctx context.Context, req ctrl.Re
 
 		// --- RELEASE LEASE IF HELD AND STATUS IS RUNNING ---
 		if fabricOrdererNode.Status.CertRenewalLeaseHeld && fabricOrdererNode.Status.Status == hlfv1alpha1.RunningStatus {
-			leaseName := "orderernode-cert-renewal-global-lock"
 			holderIdentity := os.Getenv("POD_NAME")
 			if holderIdentity == "" {
 				holderIdentity = fmt.Sprintf("orderernode-%s-lock", fabricOrdererNode.Name)
 			}
-			err := utils.ReleaseLease(ctx, clientSet, leaseName, ns, holderIdentity)
-			if err != nil {
-				log.Warnf("Error releasing lease: %v", err)
-			} else {
-				log.Infof("Released cert renewal lease for %s", fabricOrdererNode.Name)
+
+			leaseManager := NewLeaseManager(clientSet, "orderernode-cert-renewal-global-lock", ns, reqLogger)
+			if err := leaseManager.Release(ctx, holderIdentity); err != nil {
+				reqLogger.Error(err, "Failed to release certificate renewal lease", "holderIdentity", holderIdentity)
 			}
+
 			fabricOrdererNode.Status.CertRenewalLeaseHeld = false
 			if err := r.Status().Update(ctx, fabricOrdererNode); err != nil {
-				log.Errorf("Error updating status after releasing lease: %v", err)
+				reqLogger.Error(err, "Failed to update status after releasing lease")
 			}
 		}
 
 		if certificatesNeedToBeRenewed {
 			// Lease-based lock for cert renewal (global lock)
-			leaseName := "orderernode-cert-renewal-global-lock"
 			holderIdentity := os.Getenv("POD_NAME")
 			if holderIdentity == "" {
 				holderIdentity = fmt.Sprintf("orderernode-%s-lock", fabricOrdererNode.Name)
 			}
-			leaseTTL := int32(120)
-			acquired := false
-			for i := 0; i < 5; i++ { // try for ~5 seconds
-				ok, err := utils.AcquireLease(ctx, clientSet, leaseName, ns, holderIdentity, leaseTTL)
-				if err != nil {
-					log.Warnf("Error acquiring lease: %v", err)
-				}
-				if ok {
-					acquired = true
-					break
-				}
-				time.Sleep(time.Second)
+
+			leaseManager := NewLeaseManager(clientSet, "orderernode-cert-renewal-global-lock", ns, reqLogger)
+			acquired, err := leaseManager.AcquireWithRetry(ctx, holderIdentity, 120, 5)
+			if err != nil {
+				reqLogger.Error(err, "Error during lease acquisition")
+				return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 			}
 			if !acquired {
-				log.Warnf("Could not acquire cert renewal lock for %s, skipping renewal", fabricOrdererNode.Name)
+				reqLogger.Info("Could not acquire cert renewal lock, skipping renewal", "ordererNode", fabricOrdererNode.Name)
 				return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 			}
 			// Set lease held flag
@@ -280,17 +410,18 @@ func (r *FabricOrdererNodeReconciler) Reconcile(ctx context.Context, req ctrl.Re
 				log.Errorf("Error updating status after acquiring lease: %v", err)
 			}
 			// must update the certificates and block until it's done
-			log.Infof("Trying to upgrade certs (lease acquired)")
+			reqLogger.Info("Starting certificate renewal process", "ordererNode", fabricOrdererNode.Name)
 			r.setConditionStatus(ctx, fabricOrdererNode, hlfv1alpha1.UpdatingCertificates, false, nil, false)
-			err := r.updateCerts(req, fabricOrdererNode, clientSet, releaseName, ctx, cfg, ns)
+			err = r.updateCerts(req, fabricOrdererNode, clientSet, releaseName, ctx, cfg, ns)
 			if err != nil {
-				log.Errorf("Error renewing certs: %v", err)
-				r.setConditionStatus(ctx, fabricOrdererNode, hlfv1alpha1.FailedStatus, false, err, false)
+				reqLogger.Error(err, "Certificate renewal failed", "ordererNode", fabricOrdererNode.Name)
+				r.setConditionStatus(ctx, fabricOrdererNode, hlfv1alpha1.FailedStatus, false,
+					errors.Wrapf(err, "certificate renewal failed for orderer %s", fabricOrdererNode.Name), false)
 				return r.updateCRStatusOrFailReconcile(ctx, r.Log, fabricOrdererNode)
 			}
 			newTime := v1.NewTime(time.Now().Add(time.Minute * 5)) // to avoid duplicate updates
 			lastTimeCertsRenewed = &newTime
-			log.Infof("Certs updated, last time updated: %v", lastTimeCertsRenewed)
+			reqLogger.Info("Certificate renewal completed successfully", "ordererNode", fabricOrdererNode.Name, "lastUpdate", lastTimeCertsRenewed)
 			requeueAfter = time.Minute * 1
 		} else if helmStatus.Info.Status != release.StatusPendingUpgrade {
 			c, err := getConfig(fabricOrdererNode, clientSet, releaseName, req.Namespace, false)
@@ -306,7 +437,7 @@ func (r *FabricOrdererNodeReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		}
 		s, err := GetOrdererState(cfg, r.Config, releaseName, ns, fabricOrdererNode)
 		if err != nil {
-			log.Printf("Failed to get orderer state=%v", err)
+			reqLogger.Error(err, "Failed to get orderer state", "release", releaseName, "namespace", ns)
 			return ctrl.Result{}, err
 		}
 		fOrderer := fabricOrdererNode.DeepCopy()
@@ -332,31 +463,23 @@ func (r *FabricOrdererNodeReconciler) Reconcile(ctx context.Context, req ctrl.Re
 				return r.updateCRStatusOrFailReconcile(ctx, r.Log, fabricOrdererNode)
 			}
 		}
-		reqLogger.Info(fmt.Sprintf("Peer status %s  requeueAfter %v", string(s.Status), requeueAfter))
+		reqLogger.Info("Orderer status update", "status", string(s.Status), "requeueAfter", requeueAfter)
 		switch s.Status {
 		case hlfv1alpha1.PendingStatus:
-			log.Infof("Orderer %s in pending status", fabricOrdererNode.Name)
-			return ctrl.Result{
-				RequeueAfter: 10 * time.Second,
-			}, nil
+			reqLogger.Info("Orderer in pending status", "ordererNode", fabricOrdererNode.Name)
+			return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 		case hlfv1alpha1.RunningStatus:
-			return ctrl.Result{
-				RequeueAfter: requeueAfter,
-			}, nil
+			reqLogger.V(1).Info("Orderer running normally", "ordererNode", fabricOrdererNode.Name, "requeueAfter", requeueAfter)
+			return ctrl.Result{RequeueAfter: requeueAfter}, nil
 		case hlfv1alpha1.UpdatingCertificates:
-			return ctrl.Result{
-				RequeueAfter: requeueAfter,
-			}, nil
+			reqLogger.Info("Orderer updating certificates", "ordererNode", fabricOrdererNode.Name)
+			return ctrl.Result{RequeueAfter: requeueAfter}, nil
 		case hlfv1alpha1.FailedStatus:
-			log.Infof("Orderer %s in failed status", fabricOrdererNode.Name)
-			return ctrl.Result{
-				RequeueAfter: 10 * time.Second,
-			}, nil
+			reqLogger.Error(nil, "Orderer in failed status", "ordererNode", fabricOrdererNode.Name, "message", s.Message)
+			return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 		default:
-			log.Infof("Orderer %s in unknown status, requeuing in 2 seconds", fabricOrdererNode.Name)
-			return ctrl.Result{
-				RequeueAfter: 2 * time.Second,
-			}, nil
+			reqLogger.Info("Orderer in unknown status", "ordererNode", fabricOrdererNode.Name, "status", string(s.Status))
+			return ctrl.Result{RequeueAfter: 2 * time.Second}, nil
 		}
 	} else {
 		cmd := action.NewInstall(cfg)
@@ -400,7 +523,7 @@ func (r *FabricOrdererNodeReconciler) Reconcile(ctx context.Context, req ctrl.Re
 			r.setConditionStatus(ctx, fabricOrdererNode, hlfv1alpha1.FailedStatus, false, err, false)
 			return r.updateCRStatusOrFailReconcile(ctx, r.Log, fabricOrdererNode)
 		}
-		log.Printf("Chart installed %s", release.Name)
+		reqLogger.Info("Chart installed successfully", "release", release.Name, "namespace", ns)
 		fabricOrdererNode.Status.Status = hlfv1alpha1.PendingStatus
 		fabricOrdererNode.Status.Message = ""
 		fabricOrdererNode.Status.Conditions.SetCondition(status.Condition{
@@ -492,20 +615,29 @@ func (r *FabricOrdererNodeReconciler) SetupWithManager(mgr ctrl.Manager, maxReco
 }
 
 func (r *FabricOrdererNodeReconciler) updateCerts(req ctrl.Request, node *hlfv1alpha1.FabricOrdererNode, clientSet *kubernetes.Clientset, releaseName string, ctx context.Context, cfg *action.Configuration, ns string) error {
-	log.Infof("Trying to upgrade certs")
+	reqLogger := r.Log.WithValues("ordererNode", node.Name, "namespace", ns, "operation", "updateCerts")
+	reqLogger.Info("Starting certificate update process")
+
 	r.setConditionStatus(ctx, node, hlfv1alpha1.UpdatingCertificates, false, nil, false)
+
 	config, err := getConfig(node, clientSet, releaseName, req.Namespace, true)
 	if err != nil {
-		log.Errorf("Error getting the config: %v", err)
-		return errors.Wrapf(err, "Error getting the config: %v", err)
+		reqLogger.Error(err, "Failed to get configuration for certificate update")
+		return errors.Wrapf(err, "failed to get configuration for orderer %s", node.Name)
 	}
+
 	// Force Wait=true and Timeout=5m for cert renewal
 	wait := true
 	timeout := 5 * time.Minute
-	err = r.upgradeChartWithWait(cfg, err, ns, releaseName, config, wait, timeout)
+	reqLogger.Info("Upgrading chart with new certificates", "wait", wait, "timeout", timeout)
+
+	err = r.upgradeChartWithWait(cfg, nil, ns, releaseName, config, wait, timeout)
 	if err != nil {
-		return errors.Wrapf(err, "Error upgrading the chart: %v", err)
+		reqLogger.Error(err, "Failed to upgrade chart with new certificates")
+		return errors.Wrapf(err, "failed to upgrade chart for orderer %s", node.Name)
 	}
+
+	reqLogger.Info("Certificate update completed successfully")
 	return nil
 }
 

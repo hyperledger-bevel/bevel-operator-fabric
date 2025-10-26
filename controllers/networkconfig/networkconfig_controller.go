@@ -36,6 +36,112 @@ type FabricNetworkConfigReconciler struct {
 	Config *rest.Config
 }
 
+// ConfigValidator validates network config configuration
+type ConfigValidator struct{}
+
+func (v *ConfigValidator) ValidateNetworkConfig(nc *hlfv1alpha1.FabricNetworkConfig) error {
+	var errs []error
+
+	if err := v.validateSecretConfig(nc); err != nil {
+		errs = append(errs, err)
+	}
+
+	if err := v.validateOrganizations(nc); err != nil {
+		errs = append(errs, err)
+	}
+
+	if err := v.validateIdentities(nc); err != nil {
+		errs = append(errs, err)
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("validation failed: %v", errs)
+	}
+
+	return nil
+}
+
+func (v *ConfigValidator) validateSecretConfig(nc *hlfv1alpha1.FabricNetworkConfig) error {
+	if nc.Spec.SecretName == "" {
+		return errors.New("secret name is required")
+	}
+	return nil
+}
+
+func (v *ConfigValidator) validateOrganizations(nc *hlfv1alpha1.FabricNetworkConfig) error {
+	if nc.Spec.Organization == "" {
+		return errors.New("organization is required")
+	}
+	return nil
+}
+
+func (v *ConfigValidator) validateIdentities(nc *hlfv1alpha1.FabricNetworkConfig) error {
+	for _, identity := range nc.Spec.Identities {
+		if identity.Name == "" {
+			return errors.New("identity name is required")
+		}
+		if identity.Namespace == "" {
+			return errors.New("identity namespace is required")
+		}
+	}
+	return nil
+}
+
+// LeaseManager manages certificate renewal leases
+type LeaseManager struct {
+	client    kubernetes.Interface
+	leaseName string
+	namespace string
+	logger    logr.Logger
+}
+
+func NewLeaseManager(client kubernetes.Interface, leaseName, namespace string, logger logr.Logger) *LeaseManager {
+	return &LeaseManager{
+		client:    client,
+		leaseName: leaseName,
+		namespace: namespace,
+		logger:    logger,
+	}
+}
+
+func (lm *LeaseManager) AcquireWithRetry(ctx context.Context, holderIdentity string, ttl int32, maxRetries int) (bool, error) {
+	clientSet, ok := lm.client.(*kubernetes.Clientset)
+	if !ok {
+		return false, errors.New("client is not a kubernetes.Clientset")
+	}
+
+	for i := 0; i < maxRetries; i++ {
+		acquired, err := utils.AcquireLease(ctx, clientSet, lm.leaseName, lm.namespace, holderIdentity, ttl)
+		if err != nil {
+			lm.logger.V(1).Info("Lease acquisition attempt failed", "attempt", i+1, "error", err)
+			time.Sleep(time.Second)
+			continue
+		}
+		if acquired {
+			lm.logger.Info("Lease acquired successfully", "holderIdentity", holderIdentity)
+			return true, nil
+		}
+		time.Sleep(time.Second)
+	}
+	lm.logger.Info("Failed to acquire lease after retries", "maxRetries", maxRetries, "holderIdentity", holderIdentity)
+	return false, nil
+}
+
+func (lm *LeaseManager) Release(ctx context.Context, holderIdentity string) error {
+	clientSet, ok := lm.client.(*kubernetes.Clientset)
+	if !ok {
+		return errors.New("client is not a kubernetes.Clientset")
+	}
+
+	err := utils.ReleaseLease(ctx, clientSet, lm.leaseName, lm.namespace, holderIdentity)
+	if err != nil {
+		lm.logger.Error(err, "Failed to release lease", "holderIdentity", holderIdentity)
+		return err
+	}
+	lm.logger.Info("Lease released successfully", "holderIdentity", holderIdentity)
+	return nil
+}
+
 const tmplGoConfig = `
 name: hlf-network
 version: 1.0.0
@@ -224,7 +330,6 @@ func (r *FabricNetworkConfigReconciler) finalizeNetworkConfig(reqLogger logr.Log
 	if ns == "" {
 		ns = "default"
 	}
-	//releaseName := m.Name
 	reqLogger.Info("Successfully finalized networkConfig")
 
 	return nil
@@ -254,13 +359,12 @@ func (r *FabricNetworkConfigReconciler) Reconcile(ctx context.Context, req ctrl.
 
 	err := r.Get(ctx, req.NamespacedName, fabricNetworkConfig)
 	if err != nil {
-		log.Debugf("Error getting the object %s error=%v", req.NamespacedName, err)
 		if apierrors.IsNotFound(err) {
 			reqLogger.Info("NetworkConfig resource not found. Ignoring since object must be deleted.")
 			return ctrl.Result{}, nil
 		}
-		reqLogger.Error(err, "Failed to get NetworkConfig.")
-		return ctrl.Result{}, err
+		reqLogger.Error(err, "Failed to get NetworkConfig", "namespacedName", req.NamespacedName)
+		return ctrl.Result{}, fmt.Errorf("failed to get NetworkConfig %s: %w", req.NamespacedName, err)
 	}
 	isMemcachedMarkedToBeDeleted := fabricNetworkConfig.GetDeletionTimestamp() != nil
 	if isMemcachedMarkedToBeDeleted {
@@ -281,31 +385,49 @@ func (r *FabricNetworkConfigReconciler) Reconcile(ctx context.Context, req ctrl.
 			return ctrl.Result{}, err
 		}
 	}
+
+	// Validate configuration
+	validator := &ConfigValidator{}
+	if err := validator.ValidateNetworkConfig(fabricNetworkConfig); err != nil {
+		reqLogger.Error(err, "Configuration validation failed")
+		r.setConditionStatus(ctx, fabricNetworkConfig, hlfv1alpha1.FailedStatus, false, err, false)
+		return r.updateCRStatusOrFailReconcile(ctx, r.Log, fabricNetworkConfig)
+	}
 	hlfClientSet, err := operatorv1.NewForConfig(r.Config)
 	if err != nil {
-		r.setConditionStatus(ctx, fabricNetworkConfig, hlfv1alpha1.FailedStatus, false, err, false)
+		reqLogger.Error(err, "Failed to create HLF client set")
+		r.setConditionStatus(ctx, fabricNetworkConfig, hlfv1alpha1.FailedStatus, false,
+			fmt.Errorf("failed to create HLF client set: %w", err), false)
 		return r.updateCRStatusOrFailReconcile(ctx, r.Log, fabricNetworkConfig)
 	}
 	kubeClientset, err := kubernetes.NewForConfig(r.Config)
 	if err != nil {
-		r.setConditionStatus(ctx, fabricNetworkConfig, hlfv1alpha1.FailedStatus, false, err, false)
+		reqLogger.Error(err, "Failed to create Kubernetes client set")
+		r.setConditionStatus(ctx, fabricNetworkConfig, hlfv1alpha1.FailedStatus, false,
+			fmt.Errorf("failed to create Kubernetes client set: %w", err), false)
 		return r.updateCRStatusOrFailReconcile(ctx, r.Log, fabricNetworkConfig)
 	}
 	var buf bytes.Buffer
 	clusterCertAuths, err := helpers.GetClusterCAs(kubeClientset, hlfClientSet, "")
 	if err != nil {
-		r.setConditionStatus(ctx, fabricNetworkConfig, hlfv1alpha1.FailedStatus, false, err, false)
+		reqLogger.Error(err, "Failed to get cluster certificate authorities")
+		r.setConditionStatus(ctx, fabricNetworkConfig, hlfv1alpha1.FailedStatus, false,
+			fmt.Errorf("failed to get cluster CAs: %w", err), false)
 		return r.updateCRStatusOrFailReconcile(ctx, r.Log, fabricNetworkConfig)
 	}
 
 	clusterOrderersNodes, err := helpers.GetClusterOrdererNodes(kubeClientset, hlfClientSet, "")
 	if err != nil {
-		r.setConditionStatus(ctx, fabricNetworkConfig, hlfv1alpha1.FailedStatus, false, err, false)
+		reqLogger.Error(err, "Failed to get cluster orderer nodes")
+		r.setConditionStatus(ctx, fabricNetworkConfig, hlfv1alpha1.FailedStatus, false,
+			fmt.Errorf("failed to get cluster orderer nodes: %w", err), false)
 		return r.updateCRStatusOrFailReconcile(ctx, r.Log, fabricNetworkConfig)
 	}
 	peerOrgs, clusterPeers, err := helpers.GetClusterPeers(kubeClientset, hlfClientSet, "")
 	if err != nil {
-		r.setConditionStatus(ctx, fabricNetworkConfig, hlfv1alpha1.FailedStatus, false, err, false)
+		reqLogger.Error(err, "Failed to get cluster peers")
+		r.setConditionStatus(ctx, fabricNetworkConfig, hlfv1alpha1.FailedStatus, false,
+			fmt.Errorf("failed to get cluster peers: %w", err), false)
 		return r.updateCRStatusOrFailReconcile(ctx, r.Log, fabricNetworkConfig)
 	}
 	orgMap := map[string]*helpers.Organization{}
@@ -379,34 +501,45 @@ func (r *FabricNetworkConfigReconciler) Reconcile(ctx context.Context, req ctrl.
 	for _, identity := range fabricNetworkConfig.Spec.Identities {
 		fabIdentity, err := hlfClientSet.HlfV1alpha1().FabricIdentities(identity.Namespace).Get(ctx, identity.Name, metav1.GetOptions{})
 		if err != nil {
-			r.setConditionStatus(ctx, fabricNetworkConfig, hlfv1alpha1.FailedStatus, false, err, false)
+			reqLogger.Error(err, "Failed to get fabric identity", "identity", identity.Name, "namespace", identity.Namespace)
+			r.setConditionStatus(ctx, fabricNetworkConfig, hlfv1alpha1.FailedStatus, false,
+				fmt.Errorf("failed to get identity %s/%s: %w", identity.Namespace, identity.Name, err), false)
 			return r.updateCRStatusOrFailReconcile(ctx, r.Log, fabricNetworkConfig)
 		}
 		mspID := fabIdentity.Spec.MSPID
 		if _, ok := orgMap[mspID]; !ok {
-			log.Infof("Organization %s for Identity %s/%s not found in network", mspID, identity.Name, identity.Namespace)
+			reqLogger.Info("Organization not found in network, skipping identity",
+				"mspID", mspID, "identity", identity.Name, "namespace", identity.Namespace)
 			continue
 		}
 		org := orgMap[mspID]
 
 		if fabIdentity.Status.Status != hlfv1alpha1.RunningStatus {
-			r.setConditionStatus(ctx, fabricNetworkConfig, hlfv1alpha1.FailedStatus, false, errors.New("identity not ready"), false)
+			reqLogger.Error(nil, "Identity not ready", "identity", identity.Name, "namespace", identity.Namespace, "status", fabIdentity.Status.Status)
+			r.setConditionStatus(ctx, fabricNetworkConfig, hlfv1alpha1.FailedStatus, false,
+				fmt.Errorf("identity %s/%s not ready, status: %s", identity.Namespace, identity.Name, fabIdentity.Status.Status), false)
 			return r.updateCRStatusOrFailReconcile(ctx, r.Log, fabricNetworkConfig)
 		}
 		// fetch certificate and password from secret
 		secret, err := kubeClientset.CoreV1().Secrets(identity.Namespace).Get(ctx, identity.Name, metav1.GetOptions{})
 		if err != nil {
-			r.setConditionStatus(ctx, fabricNetworkConfig, hlfv1alpha1.FailedStatus, false, err, false)
+			reqLogger.Error(err, "Failed to get identity secret", "identity", identity.Name, "namespace", identity.Namespace)
+			r.setConditionStatus(ctx, fabricNetworkConfig, hlfv1alpha1.FailedStatus, false,
+				fmt.Errorf("failed to get secret for identity %s/%s: %w", identity.Namespace, identity.Name, err), false)
 			return r.updateCRStatusOrFailReconcile(ctx, r.Log, fabricNetworkConfig)
 		}
 		certBytes, ok := secret.Data["cert.pem"]
 		if !ok {
-			r.setConditionStatus(ctx, fabricNetworkConfig, hlfv1alpha1.FailedStatus, false, errors.New("no cert in secret"), false)
+			reqLogger.Error(nil, "Certificate not found in identity secret", "identity", identity.Name, "namespace", identity.Namespace)
+			r.setConditionStatus(ctx, fabricNetworkConfig, hlfv1alpha1.FailedStatus, false,
+				fmt.Errorf("no cert.pem in secret for identity %s/%s", identity.Namespace, identity.Name), false)
 			return r.updateCRStatusOrFailReconcile(ctx, r.Log, fabricNetworkConfig)
 		}
 		keyBytes, ok := secret.Data["key.pem"]
 		if !ok {
-			r.setConditionStatus(ctx, fabricNetworkConfig, hlfv1alpha1.FailedStatus, false, errors.New("no key in secret"), false)
+			reqLogger.Error(nil, "Private key not found in identity secret", "identity", identity.Name, "namespace", identity.Namespace)
+			r.setConditionStatus(ctx, fabricNetworkConfig, hlfv1alpha1.FailedStatus, false,
+				fmt.Errorf("no key.pem in secret for identity %s/%s", identity.Namespace, identity.Name), false)
 			return r.updateCRStatusOrFailReconcile(ctx, r.Log, fabricNetworkConfig)
 		}
 		org.Users = append(org.Users, helpers.OrgUser{
@@ -454,9 +587,15 @@ func (r *FabricNetworkConfigReconciler) Reconcile(ctx context.Context, req ctrl.
 
 	tmpl, err := template.New("networkConfig").Funcs(sprig.HermeticTxtFuncMap()).Parse(tmplGoConfig)
 	if err != nil {
-		r.setConditionStatus(ctx, fabricNetworkConfig, hlfv1alpha1.FailedStatus, false, err, false)
+		reqLogger.Error(err, "Failed to parse network config template")
+		r.setConditionStatus(ctx, fabricNetworkConfig, hlfv1alpha1.FailedStatus, false,
+			fmt.Errorf("failed to parse network config template: %w", err), false)
 		return r.updateCRStatusOrFailReconcile(ctx, r.Log, fabricNetworkConfig)
 	}
+
+	reqLogger.Info("Generating network configuration",
+		"peers", len(peers), "orderers", len(orderers), "organizations", len(orgMap))
+
 	err = tmpl.Execute(&buf, map[string]interface{}{
 		"Peers":            peers,
 		"Orderers":         orderers,
@@ -469,7 +608,9 @@ func (r *FabricNetworkConfigReconciler) Reconcile(ctx context.Context, req ctrl.
 		"Internal":         fabricNetworkConfig.Spec.Internal,
 	})
 	if err != nil {
-		r.setConditionStatus(ctx, fabricNetworkConfig, hlfv1alpha1.FailedStatus, false, err, false)
+		reqLogger.Error(err, "Failed to execute network config template")
+		r.setConditionStatus(ctx, fabricNetworkConfig, hlfv1alpha1.FailedStatus, false,
+			fmt.Errorf("failed to execute network config template: %w", err), false)
 		return r.updateCRStatusOrFailReconcile(ctx, r.Log, fabricNetworkConfig)
 	}
 	ns := req.Namespace
@@ -484,6 +625,7 @@ func (r *FabricNetworkConfigReconciler) Reconcile(ctx context.Context, req ctrl.
 	if err != nil {
 		if apierrors.IsNotFound(err) {
 			// creating secret
+			reqLogger.Info("Creating network config secret", "secret", secretName, "namespace", ns)
 			secret, err = kubeClientset.CoreV1().Secrets(ns).Create(
 				ctx,
 				&corev1.Secret{
@@ -496,14 +638,21 @@ func (r *FabricNetworkConfigReconciler) Reconcile(ctx context.Context, req ctrl.
 				metav1.CreateOptions{},
 			)
 			if err != nil {
-				r.setConditionStatus(ctx, fabricNetworkConfig, hlfv1alpha1.FailedStatus, false, err, false)
+				reqLogger.Error(err, "Failed to create network config secret", "secret", secretName, "namespace", ns)
+				r.setConditionStatus(ctx, fabricNetworkConfig, hlfv1alpha1.FailedStatus, false,
+					fmt.Errorf("failed to create secret %s: %w", secretName, err), false)
 				return r.updateCRStatusOrFailReconcile(ctx, r.Log, fabricNetworkConfig)
 			}
+			reqLogger.Info("Network config secret created successfully", "secret", secretName, "namespace", ns)
 			return ctrl.Result{}, nil
 		}
-		r.setConditionStatus(ctx, fabricNetworkConfig, hlfv1alpha1.FailedStatus, false, err, false)
+		reqLogger.Error(err, "Failed to get network config secret", "secret", secretName, "namespace", ns)
+		r.setConditionStatus(ctx, fabricNetworkConfig, hlfv1alpha1.FailedStatus, false,
+			fmt.Errorf("failed to get secret %s: %w", secretName, err), false)
 		return r.updateCRStatusOrFailReconcile(ctx, r.Log, fabricNetworkConfig)
 	}
+
+	reqLogger.Info("Updating network config secret", "secret", secretName, "namespace", ns)
 	secret.Data = secretData
 	secret, err = kubeClientset.CoreV1().Secrets(ns).Update(
 		ctx,
@@ -511,9 +660,13 @@ func (r *FabricNetworkConfigReconciler) Reconcile(ctx context.Context, req ctrl.
 		metav1.UpdateOptions{},
 	)
 	if err != nil {
-		r.setConditionStatus(ctx, fabricNetworkConfig, hlfv1alpha1.FailedStatus, false, err, false)
+		reqLogger.Error(err, "Failed to update network config secret", "secret", secretName, "namespace", ns)
+		r.setConditionStatus(ctx, fabricNetworkConfig, hlfv1alpha1.FailedStatus, false,
+			fmt.Errorf("failed to update secret %s: %w", secretName, err), false)
 		return r.updateCRStatusOrFailReconcile(ctx, r.Log, fabricNetworkConfig)
 	}
+	reqLogger.Info("Network configuration generated successfully", "networkConfig", fabricNetworkConfig.Name, "secret", secretName)
+
 	r.setConditionStatus(ctx, fabricNetworkConfig, hlfv1alpha1.RunningStatus, true, nil, false)
 	fca := fabricNetworkConfig.DeepCopy()
 	fca.Status.Status = hlfv1alpha1.RunningStatus
@@ -522,10 +675,10 @@ func (r *FabricNetworkConfigReconciler) Reconcile(ctx context.Context, req ctrl.
 		Status: "True",
 	})
 	if err := r.Status().Update(ctx, fca); err != nil {
-		log.Error(err, fmt.Sprintf("%v failed to update the application status", ErrClientK8s))
-		return reconcile.Result{}, err
+		reqLogger.Error(err, "Failed to update network config status", "networkConfig", fabricNetworkConfig.Name)
+		return reconcile.Result{}, fmt.Errorf("failed to update status: %w", err)
 	}
-	r.setConditionStatus(ctx, fabricNetworkConfig, hlfv1alpha1.RunningStatus, true, nil, false)
+
 	return r.updateCRStatusOrFailReconcileWithRequeue(ctx, r.Log, fabricNetworkConfig, 120*time.Minute)
 }
 

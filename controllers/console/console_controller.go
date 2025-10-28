@@ -11,7 +11,7 @@ import (
 
 	"github.com/kfsoftware/hlf-operator/pkg/status"
 	"github.com/pkg/errors"
-	log "github.com/sirupsen/logrus"
+
 	"helm.sh/helm/v3/pkg/cli"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -42,17 +42,33 @@ type FabricOperationsConsoleReconciler struct {
 	Config    *rest.Config
 }
 
+var (
+	ErrInvalidConfig = errors.New("invalidConfigurationError")
+	ErrHelmOperation = errors.New("helmOperationError")
+)
+
 func (r *FabricOperationsConsoleReconciler) addFinalizer(reqLogger logr.Logger, m *hlfv1alpha1.FabricOperationsConsole) error {
 	if len(m.GetFinalizers()) < 1 && m.GetDeletionTimestamp() == nil {
-		reqLogger.Info("Adding Finalizer for the Fabric Console")
+		reqLogger.Info("Adding finalizer for fabric console",
+			"console", m.Name,
+			"namespace", m.Namespace,
+			"finalizer", consoleFinalizer,
+		)
+
 		m.SetFinalizers([]string{consoleFinalizer})
-		// Update CR
-		err := r.Client.Update(context.TODO(), m)
-		if err != nil {
-			reqLogger.Error(err, "Failed to update Peer with finalizer")
-			return err
+
+		if err := r.Client.Update(context.TODO(), m); err != nil {
+			reqLogger.Error(err, "Failed to update console with finalizer",
+				"console", m.Name,
+				"namespace", m.Namespace,
+			)
+			return errors.Wrap(err, "failed to add finalizer to console")
 		}
-		reqLogger.Info(fmt.Sprintf("Finalizer for console %s added", m.Name))
+
+		reqLogger.Info("Successfully added finalizer to console",
+			"console", m.Name,
+			"namespace", m.Namespace,
+		)
 	}
 	return nil
 }
@@ -260,25 +276,44 @@ func (r *FabricOperationsConsoleReconciler) Reconcile(ctx context.Context, req c
 	fabricOpConsole := &hlfv1alpha1.FabricOperationsConsole{}
 	releaseName := req.Name
 	ns := req.Namespace
+
+	reqLogger.Info("Starting console reconciliation",
+		"console", req.Name,
+		"namespace", req.Namespace,
+		"releaseName", releaseName,
+	)
+
 	cfg, err := newActionCfg(r.Log, r.Config, ns)
 	if err != nil {
-		r.setConditionStatus(ctx, fabricOpConsole, hlfv1alpha1.FailedStatus, false, err, false)
-		return r.updateCRStatusOrFailReconcile(ctx, r.Log, fabricOpConsole)
+		reqLogger.Error(err, "Failed to create Helm action configuration")
+		r.setConditionStatus(ctx, fabricOpConsole, hlfv1alpha1.FailedStatus, false,
+			errors.Wrap(err, "failed to create Helm action configuration"), false)
+		return r.updateCRStatusOrFailReconcile(ctx, reqLogger, fabricOpConsole)
 	}
+
 	err = r.Get(ctx, req.NamespacedName, fabricOpConsole)
 	if err != nil {
-		log.Debugf("Error getting the object %s error=%v", req.NamespacedName, err)
 		if apierrors.IsNotFound(err) {
-			// Request object not found, could have been deleted after reconcile request.
-			// Owned objects are automatically garbage collected. For additional cleanup logic use finalizers.
-			// Return and don't requeue
-			reqLogger.Info("Peer resource not found. Ignoring since object must be deleted.")
-
+			reqLogger.Info("Console resource not found, ignoring since object must be deleted")
 			return ctrl.Result{}, nil
 		}
-		reqLogger.Error(err, "Failed to get Peer.")
+		reqLogger.Error(err, "Failed to get console resource",
+			"console", req.Name,
+			"namespace", req.Namespace,
+		)
+		r.setConditionStatus(ctx, fabricOpConsole, hlfv1alpha1.FailedStatus, false,
+			errors.Wrap(err, "failed to get console resource"), false)
+		return r.updateCRStatusOrFailReconcile(ctx, reqLogger, fabricOpConsole)
+	}
+
+	// Validate configuration
+	if err := r.validateConsoleConfig(fabricOpConsole); err != nil {
+		reqLogger.Error(err, "Invalid console configuration",
+			"console", fabricOpConsole.Name,
+			"namespace", fabricOpConsole.Namespace,
+		)
 		r.setConditionStatus(ctx, fabricOpConsole, hlfv1alpha1.FailedStatus, false, err, false)
-		return r.updateCRStatusOrFailReconcile(ctx, r.Log, fabricOpConsole)
+		return r.updateCRStatusOrFailReconcile(ctx, reqLogger, fabricOpConsole)
 	}
 
 	isPeerMarkedToDelete := fabricOpConsole.GetDeletionTimestamp() != nil
@@ -316,7 +351,10 @@ func (r *FabricOperationsConsoleReconciler) Reconcile(ctx context.Context, req c
 			return r.updateCRStatusOrFailReconcile(ctx, r.Log, fabricOpConsole)
 		}
 	}
-	log.Debugf("Release %s exists=%v", releaseName, exists)
+	reqLogger.Info("Checked Helm release existence",
+		"releaseName", releaseName,
+		"exists", exists,
+	)
 	if exists {
 		// update
 		c, err := GetConfig(fabricOpConsole)
@@ -344,20 +382,27 @@ func (r *FabricOperationsConsoleReconciler) Reconcile(ctx context.Context, req c
 		})
 		if !reflect.DeepEqual(fPeer.Status, fabricOpConsole.Status) {
 			if err := r.Status().Update(ctx, fPeer); err != nil {
-				log.Errorf("Error updating the status: %v", err)
+				reqLogger.Error(err, "Failed to update console status")
 				r.setConditionStatus(ctx, fabricOpConsole, hlfv1alpha1.FailedStatus, false, err, false)
 				return r.updateCRStatusOrFailReconcile(ctx, r.Log, fabricOpConsole)
 			}
 		}
-		log.Infof("Peer %s in %s status", fPeer.Name, string(s.Status))
+		reqLogger.Info("Console status updated",
+			"console", fPeer.Name,
+			"status", string(s.Status),
+		)
 		switch s.Status {
 		case hlfv1alpha1.PendingStatus:
-			log.Infof("Peer %s in %s status", fPeer.Name, string(s.Status))
+			reqLogger.Info("Console in pending status, requeuing",
+				"console", fPeer.Name,
+			)
 			return ctrl.Result{
 				RequeueAfter: 10 * time.Second,
 			}, nil
 		case hlfv1alpha1.FailedStatus:
-			log.Infof("Peer %s in %s status", fPeer.Name, string(s.Status))
+			reqLogger.Info("Console in failed status, requeuing",
+				"console", fPeer.Name,
+			)
 			return ctrl.Result{
 				RequeueAfter: 10 * time.Second,
 			}, nil
@@ -404,7 +449,9 @@ func (r *FabricOperationsConsoleReconciler) Reconcile(ctx context.Context, req c
 			r.setConditionStatus(ctx, fabricOpConsole, hlfv1alpha1.FailedStatus, false, err, false)
 			return r.updateCRStatusOrFailReconcile(ctx, r.Log, fabricOpConsole)
 		}
-		log.Infof("Chart installed %s", release.Name)
+		reqLogger.Info("Successfully installed Helm chart",
+			"releaseName", release.Name,
+		)
 		fabricOpConsole.Status.Status = hlfv1alpha1.PendingStatus
 		fabricOpConsole.Status.Conditions.SetCondition(status.Condition{
 			Type:               "DEPLOYED",
@@ -456,7 +503,26 @@ func (r *FabricOperationsConsoleReconciler) upgradeChart(
 	if err != nil {
 		return err
 	}
-	log.Infof("Chart upgraded %s", release.Name)
+	r.Log.Info("Successfully upgraded Helm chart",
+		"releaseName", release.Name,
+	)
+	return nil
+}
+
+func (r *FabricOperationsConsoleReconciler) validateConsoleConfig(console *hlfv1alpha1.FabricOperationsConsole) error {
+	if console.Spec.Image == "" {
+		return errors.Wrap(ErrInvalidConfig, "console image cannot be empty")
+	}
+
+	if console.Spec.Tag == "" {
+		return errors.Wrap(ErrInvalidConfig, "console image tag cannot be empty")
+	}
+
+	// Basic validation - console should have required fields
+	if console.Name == "" {
+		return errors.Wrap(ErrInvalidConfig, "console name cannot be empty")
+	}
+
 	return nil
 }
 
@@ -476,7 +542,9 @@ func (r *FabricOperationsConsoleReconciler) setConditionStatus(ctx context.Conte
 		p.Status.Status = conditionType
 		err = r.Status().Patch(ctx, p, depCopy)
 		if err != nil {
-			log.Warnf("Failed to update status to %s: %v", conditionType, err)
+			r.Log.Error(err, "Failed to patch console status",
+				"targetStatus", conditionType,
+			)
 		}
 	}
 	if err != nil {
@@ -499,15 +567,13 @@ func (r *FabricOperationsConsoleReconciler) setConditionStatus(ctx context.Conte
 	return p.Status.Conditions.SetCondition(condition())
 }
 
-var (
-	ErrClientK8s = errors.New("k8sAPIClientError")
-)
-
-func (r *FabricOperationsConsoleReconciler) updateCRStatusOrFailReconcile(ctx context.Context, log logr.Logger, p *hlfv1alpha1.FabricOperationsConsole) (
-	reconcile.Result, error) {
+func (r *FabricOperationsConsoleReconciler) updateCRStatusOrFailReconcile(ctx context.Context, log logr.Logger, p *hlfv1alpha1.FabricOperationsConsole) (reconcile.Result, error) {
 	if err := r.Status().Update(ctx, p); err != nil {
-		log.Error(err, fmt.Sprintf("%v failed to update the application status", ErrClientK8s))
-		return reconcile.Result{}, err
+		log.Error(err, "Failed to update console status",
+			"console", p.Name,
+			"namespace", p.Namespace,
+		)
+		return reconcile.Result{}, errors.Wrap(err, "failed to update console status")
 	}
 	return reconcile.Result{}, nil
 }
@@ -622,10 +688,15 @@ func (r *FabricOperationsConsoleReconciler) finalizePeer(reqLogger logr.Logger, 
 		if strings.Compare("Release not loaded", err.Error()) != 0 {
 			return nil
 		}
-		log.Errorf("Failed to uninstall release %s %v", releaseName, err)
+		r.Log.Error(err, "Failed to uninstall Helm release",
+			"releaseName", releaseName,
+		)
 		return err
 	}
-	log.Infof("Release %s deleted=%s", releaseName, resp.Info)
+	r.Log.Info("Successfully deleted Helm release",
+		"releaseName", releaseName,
+		"info", resp.Info,
+	)
 	return nil
 }
 

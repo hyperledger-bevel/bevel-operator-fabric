@@ -41,6 +41,65 @@ type FabricIdentityReconciler struct {
 	AutoRenewCertificatesDelta time.Duration
 }
 
+// ConfigValidator validates identity configuration
+type ConfigValidator struct{}
+
+func (v *ConfigValidator) ValidateIdentity(identity *hlfv1alpha1.FabricIdentity) error {
+	var errs []error
+
+	if err := v.validateCredentialStore(identity); err != nil {
+		errs = append(errs, err)
+	}
+
+	if err := v.validateEnrollment(identity); err != nil {
+		errs = append(errs, err)
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("validation failed: %v", errs)
+	}
+
+	return nil
+}
+
+func (v *ConfigValidator) validateCredentialStore(identity *hlfv1alpha1.FabricIdentity) error {
+	switch identity.Spec.CredentialStore {
+	case hlfv1alpha1.CredentialStoreVault:
+		return v.validateVaultConfig(identity)
+	case hlfv1alpha1.CredentialStoreKubernetes, "":
+		return v.validateKubernetesConfig(identity)
+	default:
+		return fmt.Errorf("unsupported credential store: %s", identity.Spec.CredentialStore)
+	}
+}
+
+func (v *ConfigValidator) validateVaultConfig(identity *hlfv1alpha1.FabricIdentity) error {
+	if identity.Spec.Vault == nil {
+		return errors.New("vault configuration is required when using vault credential store")
+	}
+	return nil
+}
+
+func (v *ConfigValidator) validateKubernetesConfig(identity *hlfv1alpha1.FabricIdentity) error {
+	if identity.Spec.Cahost == "" {
+		return errors.New("CA host is required when using kubernetes credential store")
+	}
+	if identity.Spec.Enrollid == "" {
+		return errors.New("enrollment ID is required")
+	}
+	if identity.Spec.Enrollsecret == "" {
+		return errors.New("enrollment secret is required")
+	}
+	return nil
+}
+
+func (v *ConfigValidator) validateEnrollment(identity *hlfv1alpha1.FabricIdentity) error {
+	if identity.Spec.MSPID == "" {
+		return errors.New("MSP ID is required")
+	}
+	return nil
+}
+
 const identityFinalizer = "finalizer.identity.hlf.kungfusoftware.es"
 
 func (r *FabricIdentityReconciler) finalizeMainChannel(reqLogger logr.Logger, m *hlfv1alpha1.FabricIdentity) error {
@@ -94,13 +153,12 @@ func (r *FabricIdentityReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	err := r.Get(ctx, req.NamespacedName, fabricIdentity)
 	if err != nil {
-		log.Debugf("Error getting the object %s error=%v", req.NamespacedName, err)
 		if apierrors.IsNotFound(err) {
-			reqLogger.Info("MainChannel resource not found. Ignoring since object must be deleted.")
+			reqLogger.Info("Identity resource not found. Ignoring since object must be deleted.")
 			return ctrl.Result{}, nil
 		}
-		reqLogger.Error(err, "Failed to get MainChannel.")
-		return ctrl.Result{}, err
+		reqLogger.Error(err, "Failed to get Identity", "namespacedName", req.NamespacedName)
+		return ctrl.Result{}, fmt.Errorf("failed to get Identity %s: %w", req.NamespacedName, err)
 	}
 	markedToBeDeleted := fabricIdentity.GetDeletionTimestamp() != nil
 	if markedToBeDeleted {
@@ -120,6 +178,14 @@ func (r *FabricIdentityReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		if err := r.addFinalizer(reqLogger, fabricIdentity); err != nil {
 			return ctrl.Result{}, err
 		}
+	}
+
+	// Validate configuration
+	validator := &ConfigValidator{}
+	if err := validator.ValidateIdentity(fabricIdentity); err != nil {
+		reqLogger.Error(err, "Configuration validation failed")
+		r.setConditionStatus(ctx, fabricIdentity, hlfv1alpha1.FailedStatus, false, err, false)
+		return r.updateCRStatusOrFailReconcile(ctx, r.Log, fabricIdentity)
 	}
 	if fabricIdentity.Spec.CredentialStore == "" {
 		fabricIdentity.Spec.CredentialStore = "kubernetes"
@@ -144,7 +210,7 @@ func (r *FabricIdentityReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	var pk *ecdsa.PrivateKey
 	var rootCert *x509.Certificate
 	if fabricIdentity.Spec.Register != nil && fabricIdentity.Spec.CredentialStore == hlfv1alpha1.CredentialStoreKubernetes {
-		log.Infof("Registering user %s", fabricIdentity.Spec.Enrollid)
+		reqLogger.Info("Registering user", "enrollId", fabricIdentity.Spec.Enrollid, "mspId", fabricIdentity.Spec.MSPID)
 		attributes := []api.Attribute{}
 		for _, attr := range fabricIdentity.Spec.Register.Attributes {
 			attributes = append(attributes, api.Attribute{
@@ -214,7 +280,7 @@ func (r *FabricIdentityReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			certificatesNeedToBeRenewed = true
 		}
 
-		log.Infof("Crypto material needs to be renewed: %v", certificatesNeedToBeRenewed)
+		reqLogger.Info("Certificate renewal decision", "identity", fabricIdentity.Name, "needsRenewal", certificatesNeedToBeRenewed)
 		if certificatesNeedToBeRenewed {
 			x509Cert, pk, rootCert, err = ReenrollSignCryptoMaterial(clientSet, fabricIdentity, string(utils.EncodeX509Certificate(x509Cert)), pk)
 			authenticationFailure := false

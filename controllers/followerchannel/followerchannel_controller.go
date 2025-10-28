@@ -30,7 +30,7 @@ import (
 	"github.com/kfsoftware/hlf-operator/pkg/nc"
 	"github.com/kfsoftware/hlf-operator/pkg/status"
 	"github.com/pkg/errors"
-	log "github.com/sirupsen/logrus"
+
 	"gopkg.in/yaml.v3"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -53,26 +53,54 @@ type FabricFollowerChannelReconciler struct {
 
 const followerChannelFinalizer = "finalizer.followerChannel.hlf.kungfusoftware.es"
 
+var (
+	ErrInvalidConfig      = errors.New("invalidConfigurationError")
+	ErrChannelOperation   = errors.New("channelOperationError")
+	ErrIdentityManagement = errors.New("identityManagementError")
+)
+
 func (r *FabricFollowerChannelReconciler) finalizeFollowerChannel(reqLogger logr.Logger, m *hlfv1alpha1.FabricFollowerChannel) error {
 	ns := m.Namespace
 	if ns == "" {
 		ns = "default"
 	}
-	reqLogger.Info("Successfully finalized followerChannel")
 
+	reqLogger.Info("Finalizing follower channel",
+		"channel", m.Name,
+		"namespace", ns,
+		"mspID", m.Spec.MSPID,
+	)
+
+	// Perform any cleanup operations here if needed
+
+	reqLogger.Info("Successfully finalized follower channel",
+		"channel", m.Name,
+		"namespace", ns,
+	)
 	return nil
 }
 
 func (r *FabricFollowerChannelReconciler) addFinalizer(reqLogger logr.Logger, m *hlfv1alpha1.FabricFollowerChannel) error {
-	reqLogger.Info("Adding Finalizer for the MainChannel")
+	reqLogger.Info("Adding finalizer for follower channel",
+		"channel", m.Name,
+		"namespace", m.Namespace,
+		"finalizer", followerChannelFinalizer,
+	)
+
 	controllerutil.AddFinalizer(m, followerChannelFinalizer)
 
-	// Update CR
-	err := r.Update(context.TODO(), m)
-	if err != nil {
-		reqLogger.Error(err, "Failed to update MainChannel with finalizer")
-		return err
+	if err := r.Update(context.TODO(), m); err != nil {
+		reqLogger.Error(err, "Failed to update follower channel with finalizer",
+			"channel", m.Name,
+			"namespace", m.Namespace,
+		)
+		return errors.Wrap(err, "failed to add finalizer to follower channel")
 	}
+
+	reqLogger.Info("Successfully added finalizer to follower channel",
+		"channel", m.Name,
+		"namespace", m.Namespace,
+	)
 	return nil
 }
 
@@ -83,15 +111,32 @@ func (r *FabricFollowerChannelReconciler) Reconcile(ctx context.Context, req ctr
 	reqLogger := r.Log.WithValues("hlf", req.NamespacedName)
 	fabricFollowerChannel := &hlfv1alpha1.FabricFollowerChannel{}
 
+	reqLogger.Info("Starting follower channel reconciliation",
+		"channel", req.Name,
+		"namespace", req.Namespace,
+	)
+
 	err := r.Get(ctx, req.NamespacedName, fabricFollowerChannel)
 	if err != nil {
-		log.Debugf("Error getting the object %s error=%v", req.NamespacedName, err)
 		if apierrors.IsNotFound(err) {
-			reqLogger.Info("MainChannel resource not found. Ignoring since object must be deleted.")
+			reqLogger.Info("Follower channel resource not found, ignoring since object must be deleted")
 			return ctrl.Result{}, nil
 		}
-		reqLogger.Error(err, "Failed to get MainChannel.")
-		return ctrl.Result{}, err
+		reqLogger.Error(err, "Failed to get follower channel resource",
+			"channel", req.Name,
+			"namespace", req.Namespace,
+		)
+		return ctrl.Result{}, errors.Wrap(err, "failed to get follower channel resource")
+	}
+
+	// Validate configuration
+	if err := r.validateFollowerChannelConfig(fabricFollowerChannel); err != nil {
+		reqLogger.Error(err, "Invalid follower channel configuration",
+			"channel", fabricFollowerChannel.Name,
+			"namespace", fabricFollowerChannel.Namespace,
+		)
+		r.setConditionStatus(ctx, fabricFollowerChannel, hlfv1alpha1.FailedStatus, false, err, false)
+		return r.updateCRStatusOrFailReconcile(ctx, reqLogger, fabricFollowerChannel)
 	}
 	markedToBeDeleted := fabricFollowerChannel.GetDeletionTimestamp() != nil
 	if markedToBeDeleted {
@@ -114,30 +159,44 @@ func (r *FabricFollowerChannelReconciler) Reconcile(ctx context.Context, req ctr
 	}
 	clientSet, err := utils.GetClientKubeWithConf(r.Config)
 	if err != nil {
-		r.setConditionStatus(ctx, fabricFollowerChannel, hlfv1alpha1.FailedStatus, false, err, false)
-		return r.updateCRStatusOrFailReconcile(ctx, r.Log, fabricFollowerChannel)
+		reqLogger.Error(err, "Failed to get kubernetes client")
+		r.setConditionStatus(ctx, fabricFollowerChannel, hlfv1alpha1.FailedStatus, false,
+			errors.Wrap(err, "failed to get kubernetes client"), false)
+		return r.updateCRStatusOrFailReconcile(ctx, reqLogger, fabricFollowerChannel)
 	}
 	hlfClientSet, err := operatorv1.NewForConfig(r.Config)
 	if err != nil {
-		r.setConditionStatus(ctx, fabricFollowerChannel, hlfv1alpha1.FailedStatus, false, err, false)
-		return r.updateCRStatusOrFailReconcile(ctx, r.Log, fabricFollowerChannel)
+		reqLogger.Error(err, "Failed to get HLF client")
+		r.setConditionStatus(ctx, fabricFollowerChannel, hlfv1alpha1.FailedStatus, false,
+			errors.Wrap(err, "failed to get HLF client"), false)
+		return r.updateCRStatusOrFailReconcile(ctx, reqLogger, fabricFollowerChannel)
 	}
 
 	// join peers
 	mspID := fabricFollowerChannel.Spec.MSPID
-	var networkConfig string
+	reqLogger.Info("Generating network configuration for follower channel",
+		"mspID", mspID,
+		"channel", fabricFollowerChannel.Spec.Name,
+	)
+
 	ncResponse, err := nc.GenerateNetworkConfigForFollower(fabricFollowerChannel, clientSet, hlfClientSet, mspID)
 	if err != nil {
-		r.setConditionStatus(ctx, fabricFollowerChannel, hlfv1alpha1.FailedStatus, false, errors.Wrapf(err, "failed to generate network config"), false)
-		return r.updateCRStatusOrFailReconcile(ctx, r.Log, fabricFollowerChannel)
+		reqLogger.Error(err, "Failed to generate network configuration")
+		r.setConditionStatus(ctx, fabricFollowerChannel, hlfv1alpha1.FailedStatus, false,
+			errors.Wrap(err, "failed to generate network configuration"), false)
+		return r.updateCRStatusOrFailReconcile(ctx, reqLogger, fabricFollowerChannel)
 	}
-	networkConfig = ncResponse.NetworkConfig
-	log.Infof("Generated network config: %s", networkConfig)
-	configBackend := config.FromRaw([]byte(networkConfig), "yaml")
+
+	reqLogger.Info("Successfully generated network configuration",
+		"configSize", len(ncResponse.NetworkConfig),
+	)
+	configBackend := config.FromRaw([]byte(ncResponse.NetworkConfig), "yaml")
 	sdk, err := fabsdk.New(configBackend)
 	if err != nil {
-		r.setConditionStatus(ctx, fabricFollowerChannel, hlfv1alpha1.FailedStatus, false, err, false)
-		return r.updateCRStatusOrFailReconcile(ctx, r.Log, fabricFollowerChannel)
+		reqLogger.Error(err, "Failed to initialize Fabric SDK")
+		r.setConditionStatus(ctx, fabricFollowerChannel, hlfv1alpha1.FailedStatus, false,
+			errors.Wrap(err, "failed to initialize Fabric SDK"), false)
+		return r.updateCRStatusOrFailReconcile(ctx, reqLogger, fabricFollowerChannel)
 	}
 	defer sdk.Close()
 	idConfig := fabricFollowerChannel.Spec.HLFIdentity
@@ -197,34 +256,66 @@ func (r *FabricFollowerChannelReconciler) Reconcile(ctx context.Context, req ctr
 		return r.updateCRStatusOrFailReconcile(ctx, r.Log, fabricFollowerChannel)
 	}
 	for _, peer := range fabricFollowerChannel.Spec.PeersToJoin {
-		r.Log.Info(fmt.Sprintf("Joining peer %s namespace %s", peer.Name, peer.Namespace))
+		reqLogger.Info("Joining internal peer to channel",
+			"peerName", peer.Name,
+			"peerNamespace", peer.Namespace,
+			"channel", fabricFollowerChannel.Spec.Name,
+		)
+
 		err = resClient.JoinChannel(
 			fabricFollowerChannel.Spec.Name,
 			resmgmt.WithTargetEndpoints(fmt.Sprintf("%s.%s", peer.Name, peer.Namespace)),
 		)
 		if err != nil {
 			if strings.Contains(err.Error(), "already exists") {
-				r.Log.Info(fmt.Sprintf("Peer %s already joined channel %s", peer.Name, fabricFollowerChannel.Spec.Name))
+				reqLogger.Info("Internal peer already joined to channel",
+					"peerName", peer.Name,
+					"peerNamespace", peer.Namespace,
+				)
 				continue
 			}
-			r.setConditionStatus(ctx, fabricFollowerChannel, hlfv1alpha1.FailedStatus, false, err, false)
-			return r.updateCRStatusOrFailReconcile(ctx, r.Log, fabricFollowerChannel)
+			reqLogger.Error(err, "Failed to join internal peer to channel",
+				"peerName", peer.Name,
+				"peerNamespace", peer.Namespace,
+			)
+			r.setConditionStatus(ctx, fabricFollowerChannel, hlfv1alpha1.FailedStatus, false,
+				errors.Wrapf(err, "failed to join peer %s/%s to channel", peer.Namespace, peer.Name), false)
+			return r.updateCRStatusOrFailReconcile(ctx, reqLogger, fabricFollowerChannel)
 		}
+
+		reqLogger.Info("Successfully joined internal peer to channel",
+			"peerName", peer.Name,
+			"peerNamespace", peer.Namespace,
+		)
 	}
 	for _, peer := range fabricFollowerChannel.Spec.ExternalPeersToJoin {
-		r.Log.Info(fmt.Sprintf("Joining peer %s", peer.URL))
+		reqLogger.Info("Joining external peer to channel",
+			"peerURL", peer.URL,
+			"channel", fabricFollowerChannel.Spec.Name,
+		)
+
 		err = resClient.JoinChannel(
 			fabricFollowerChannel.Spec.Name,
 			resmgmt.WithTargetEndpoints(peer.URL),
 		)
 		if err != nil {
 			if strings.Contains(err.Error(), "already exists") {
-				r.Log.Info(fmt.Sprintf("Peer %s already joined channel %s", peer.URL, fabricFollowerChannel.Spec.Name))
+				reqLogger.Info("External peer already joined to channel",
+					"peerURL", peer.URL,
+				)
 				continue
 			}
-			r.setConditionStatus(ctx, fabricFollowerChannel, hlfv1alpha1.FailedStatus, false, err, false)
-			return r.updateCRStatusOrFailReconcile(ctx, r.Log, fabricFollowerChannel)
+			reqLogger.Error(err, "Failed to join external peer to channel",
+				"peerURL", peer.URL,
+			)
+			r.setConditionStatus(ctx, fabricFollowerChannel, hlfv1alpha1.FailedStatus, false,
+				errors.Wrapf(err, "failed to join external peer %s to channel", peer.URL), false)
+			return r.updateCRStatusOrFailReconcile(ctx, reqLogger, fabricFollowerChannel)
 		}
+
+		reqLogger.Info("Successfully joined external peer to channel",
+			"peerURL", peer.URL,
+		)
 	}
 
 	// set anchor peers
@@ -246,7 +337,9 @@ func (r *FabricFollowerChannelReconciler) Reconcile(ctx context.Context, req ctr
 		r.setConditionStatus(ctx, fabricFollowerChannel, hlfv1alpha1.FailedStatus, false, errors.Wrapf(err, "error converting block to JSON"), false)
 		return r.updateCRStatusOrFailReconcile(ctx, r.Log, fabricFollowerChannel)
 	}
-	log.Infof("Config block: %s", buf2.Bytes())
+	reqLogger.Info("Retrieved channel configuration block",
+		"configSize", buf2.Len(),
+	)
 	cftxGen := configtx.New(cfgBlock)
 	ordererConfig, err := cftxGen.Orderer().Configuration()
 	if err != nil {
@@ -355,7 +448,9 @@ func (r *FabricFollowerChannelReconciler) Reconcile(ctx context.Context, req ctr
 			r.setConditionStatus(ctx, fabricFollowerChannel, hlfv1alpha1.FailedStatus, false, err, false)
 			return r.updateCRStatusOrFailReconcile(ctx, r.Log, fabricFollowerChannel)
 		}
-		log.Infof("anchor anchorPeers added: %s", chResponse.TransactionID)
+		reqLogger.Info("Successfully updated channel configuration",
+			"transactionID", chResponse.TransactionID,
+		)
 	}
 
 	// update config map with the configuration
@@ -413,39 +508,79 @@ func (r *FabricFollowerChannelReconciler) Reconcile(ctx context.Context, req ctr
 	}
 
 	fabricFollowerChannel.Status.Status = hlfv1alpha1.RunningStatus
-	fabricFollowerChannel.Status.Message = "Peers and anchor peers completed"
+	fabricFollowerChannel.Status.Message = "Peers and anchor peers setup completed successfully"
 	fabricFollowerChannel.Status.Conditions.SetCondition(status.Condition{
 		Type:   status.ConditionType(fabricFollowerChannel.Status.Status),
 		Status: "True",
 	})
+
 	if err := r.Status().Update(ctx, fabricFollowerChannel); err != nil {
-		r.setConditionStatus(ctx, fabricFollowerChannel, hlfv1alpha1.FailedStatus, false, err, false)
-		return r.updateCRStatusOrFailReconcile(ctx, r.Log, fabricFollowerChannel)
+		reqLogger.Error(err, "Failed to update status to running")
+		r.setConditionStatus(ctx, fabricFollowerChannel, hlfv1alpha1.FailedStatus, false,
+			errors.Wrap(err, "failed to update status"), false)
+		return r.updateCRStatusOrFailReconcile(ctx, reqLogger, fabricFollowerChannel)
 	}
-	return r.updateCRStatusOrFailReconcile(ctx, r.Log, fabricFollowerChannel)
+
+	reqLogger.Info("Successfully completed follower channel reconciliation",
+		"channel", fabricFollowerChannel.Spec.Name,
+		"namespace", fabricFollowerChannel.Namespace,
+		"mspID", fabricFollowerChannel.Spec.MSPID,
+		"status", fabricFollowerChannel.Status.Status,
+	)
+	return r.updateCRStatusOrFailReconcile(ctx, reqLogger, fabricFollowerChannel)
 }
 
-var (
-	ErrClientK8s = errors.New("k8sAPIClientError")
-)
-
-func (r *FabricFollowerChannelReconciler) updateCRStatusOrFailReconcile(ctx context.Context, log logr.Logger, p *hlfv1alpha1.FabricFollowerChannel) (
-	reconcile.Result, error) {
-	if err := r.Status().Update(ctx, p); err != nil {
-		log.Error(err, fmt.Sprintf("%v failed to update the application status", ErrClientK8s))
-		return reconcile.Result{}, err
+func (r *FabricFollowerChannelReconciler) validateFollowerChannelConfig(channel *hlfv1alpha1.FabricFollowerChannel) error {
+	if channel.Spec.Name == "" {
+		return errors.Wrap(ErrInvalidConfig, "channel name cannot be empty")
 	}
+
+	if channel.Spec.MSPID == "" {
+		return errors.Wrap(ErrInvalidConfig, "MSPID cannot be empty")
+	}
+
+	if channel.Spec.HLFIdentity.SecretName == "" {
+		return errors.Wrap(ErrInvalidConfig, "HLF identity secret name cannot be empty")
+	}
+
+	if channel.Spec.HLFIdentity.SecretKey == "" {
+		return errors.Wrap(ErrInvalidConfig, "HLF identity secret key cannot be empty")
+	}
+
+	if len(channel.Spec.PeersToJoin) == 0 && len(channel.Spec.ExternalPeersToJoin) == 0 {
+		return errors.Wrap(ErrInvalidConfig, "at least one peer must be specified to join the channel")
+	}
+
+	return nil
+}
+
+func (r *FabricFollowerChannelReconciler) updateCRStatusOrFailReconcile(ctx context.Context, log logr.Logger, p *hlfv1alpha1.FabricFollowerChannel) (reconcile.Result, error) {
+	if err := r.Status().Update(ctx, p); err != nil {
+		log.Error(err, "Failed to update follower channel status",
+			"channel", p.Name,
+			"namespace", p.Namespace,
+		)
+		return reconcile.Result{}, errors.Wrap(err, "failed to update follower channel status")
+	}
+
 	if p.Status.Status == hlfv1alpha1.FailedStatus {
+		log.Info("Follower channel in failed status, requeuing",
+			"channel", p.Name,
+			"requeueAfter", "5m",
+		)
 		return reconcile.Result{
 			RequeueAfter: 5 * time.Minute,
 		}, nil
 	}
+
 	return reconcile.Result{
 		Requeue: false,
 	}, nil
 }
 
 func (r *FabricFollowerChannelReconciler) setConditionStatus(ctx context.Context, p *hlfv1alpha1.FabricFollowerChannel, conditionType hlfv1alpha1.DeploymentStatus, statusFlag bool, err error, statusUnknown bool) (update bool) {
+	reqLogger := r.Log.WithValues("channel", p.Name)
+
 	statusStr := func() corev1.ConditionStatus {
 		if statusUnknown {
 			return corev1.ConditionUnknown
@@ -456,17 +591,26 @@ func (r *FabricFollowerChannelReconciler) setConditionStatus(ctx context.Context
 			return corev1.ConditionFalse
 		}
 	}
+
 	if p.Status.Status != conditionType {
+		reqLogger.Info("Updating follower channel status",
+			"previousStatus", p.Status.Status,
+			"newStatus", conditionType,
+		)
+
 		depCopy := client.MergeFrom(p.DeepCopy())
 		p.Status.Status = conditionType
-		err = r.Status().Patch(ctx, p, depCopy)
-		if err != nil {
-			log.Warnf("Failed to update status to %s: %v", conditionType, err)
+		if patchErr := r.Status().Patch(ctx, p, depCopy); patchErr != nil {
+			reqLogger.Error(patchErr, "Failed to patch follower channel status",
+				"targetStatus", conditionType,
+			)
 		}
 	}
+
 	if err != nil {
 		p.Status.Message = err.Error()
 	}
+
 	condition := func() status.Condition {
 		if err != nil {
 			return status.Condition{
@@ -481,6 +625,7 @@ func (r *FabricFollowerChannelReconciler) setConditionStatus(ctx context.Context
 			Status: statusStr(),
 		}
 	}
+
 	return p.Status.Conditions.SetCondition(condition())
 }
 

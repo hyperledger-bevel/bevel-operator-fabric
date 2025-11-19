@@ -371,7 +371,7 @@ func GetCAInfo(params GetCAInfoRequest) (*lib.GetCAInfoResponse, error) {
 	return nil, fmt.Errorf("GetCAInfo functionality not implemented for Vault yet")
 }
 
-func ReenrollUser(clientSet *kubernetes.Clientset, spec *hlfv1alpha1.VaultSpecConf, request *hlfv1alpha1.VaultPKICertificateRequest, params ReenrollUserRequest, certPem string, ecdsaKey *ecdsa.PrivateKey) (*x509.Certificate, *x509.Certificate, error) {
+func ReenrollUser(clientSet kubernetes.Interface, spec *hlfv1alpha1.VaultSpecConf, request *hlfv1alpha1.VaultPKICertificateRequest, params ReenrollUserRequest, certPem string, ecdsaKey *ecdsa.PrivateKey) (*x509.Certificate, *x509.Certificate, error) {
 	vaultClient, err := GetClient(spec, clientSet)
 	if err != nil {
 		return nil, nil, err
@@ -451,7 +451,7 @@ func ReenrollUser(clientSet *kubernetes.Clientset, spec *hlfv1alpha1.VaultSpecCo
 
 	return cert, caCert, nil
 }
-func EnrollUser(clientSet *kubernetes.Clientset, vaultConf *hlfv1alpha1.VaultSpecConf, request *hlfv1alpha1.VaultPKICertificateRequest, params EnrollUserRequest) (*x509.Certificate, *ecdsa.PrivateKey, *x509.Certificate, error) {
+func EnrollUser(clientSet kubernetes.Interface, vaultConf *hlfv1alpha1.VaultSpecConf, request *hlfv1alpha1.VaultPKICertificateRequest, params EnrollUserRequest) (*x509.Certificate, *ecdsa.PrivateKey, *x509.Certificate, error) {
 	// Use the provided VaultSpecConf to get a client
 	vaultClient, err := GetClient(vaultConf, clientSet)
 	if err != nil {
@@ -561,7 +561,7 @@ func convertToVaultConfig(params FabricCAParams) *hlfv1alpha1.VaultSpecConf {
 	}
 }
 
-func GetClient(spec *hlfv1alpha1.VaultSpecConf, clientset *kubernetes.Clientset) (*vault.Client, error) {
+func GetClient(spec *hlfv1alpha1.VaultSpecConf, clientset kubernetes.Interface) (*vault.Client, error) {
 	// Configure Vault client
 	vaultConfig := vault.DefaultConfiguration()
 	vaultConfig.Address = spec.URL

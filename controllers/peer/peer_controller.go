@@ -982,6 +982,18 @@ func getExistingSignCrypto(client *kubernetes.Clientset, chartName string, names
 	return crt, key, rootCrt, nil
 }
 
+func deduplicateHosts(hosts []string) []string {
+	seen := make(map[string]bool)
+	var result []string
+	for _, host := range hosts {
+		if host != "" && !seen[host] {
+			seen[host] = true
+			result = append(result, host)
+		}
+	}
+	return result
+}
+
 func getEnrollRequestForFabricCA(client *kubernetes.Clientset, enrollment *hlfv1alpha1.Component, conf *hlfv1alpha1.FabricPeer, profile string) (certs.EnrollUserRequest, error) {
 	cacert, err := getCertBytesFromCATLS(client, enrollment.Catls)
 	if err != nil {
@@ -1011,6 +1023,7 @@ func getEnrollRequestForFabricCATLS(client *kubernetes.Clientset, enrollment *hl
 	var hosts []string
 	hosts = append(hosts, enrollment.Csr.Hosts...)
 	hosts = append(hosts, ingressHosts...)
+	hosts = deduplicateHosts(hosts)
 	return certs.EnrollUserRequest{
 		Hosts:      hosts,
 		CN:         enrollment.Enrollid,
@@ -1041,6 +1054,7 @@ func getEnrollRequestForVaultTLS(tls *hlfv1alpha1.TLSComponent, conf *hlfv1alpha
 	var hosts []string
 	hosts = append(hosts, tlsParams.Csr.Hosts...)
 	hosts = append(hosts, ingressHosts...)
+	hosts = deduplicateHosts(hosts)
 	return certs_vault.EnrollUserRequest{
 		MSPID:      conf.Spec.MspID,
 		User:       tls.Enrollid,
@@ -1166,6 +1180,7 @@ func getReenrollRequestForFabricCATLS(client *kubernetes.Clientset, enrollment *
 	var hosts []string
 	hosts = append(hosts, tlsParams.Csr.Hosts...)
 	hosts = append(hosts, ingressHosts...)
+	hosts = deduplicateHosts(hosts)
 
 	tlsCAUrl := fmt.Sprintf("https://%s:%d", enrollment.Cahost, enrollment.Caport)
 	return certs.ReenrollUserRequest{
@@ -1195,6 +1210,7 @@ func getReenrollRequestForVaultTLS(tls *hlfv1alpha1.TLSComponent, conf *hlfv1alp
 	var hosts []string
 	hosts = append(hosts, tlsParams.Csr.Hosts...)
 	hosts = append(hosts, ingressHosts...)
+	hosts = deduplicateHosts(hosts)
 	return certs_vault.ReenrollUserRequest{
 		MSPID:      conf.Spec.MspID,
 		Hosts:      hosts,

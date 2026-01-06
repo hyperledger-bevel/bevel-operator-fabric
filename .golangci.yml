@@ -1,37 +1,170 @@
+# golangci-lint configuration
+# https://golangci-lint.run/usage/configuration/
+
 run:
+  timeout: 10m
   skip-dirs:
     - internal
+    - pkg/client
 
 linters-settings:
-  golint:
-    min-confidence: 0
+  errcheck:
+    check-type-assertions: true
+    check-blank: false
+    exclude-functions:
+      - io.Copy
+      - io.WriteString
+
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - style
+      - performance
+    disabled-checks:
+      - hugeParam
+      - rangeValCopy
+
+  goimports:
+    local-prefixes: github.com/kfsoftware/hlf-operator
+
+  govet:
+    enable-all: true
+    disable:
+      - fieldalignment
+      - shadow
 
   misspell:
     locale: US
 
+  revive:
+    rules:
+      - name: blank-imports
+      - name: context-as-argument
+      - name: context-keys-type
+      - name: dot-imports
+      - name: error-return
+      - name: error-strings
+      - name: error-naming
+      - name: exported
+      - name: increment-decrement
+      - name: var-naming
+      - name: var-declaration
+      - name: package-comments
+        disabled: true
+      - name: range
+      - name: receiver-naming
+      - name: time-naming
+      - name: unexported-return
+      - name: indent-error-flow
+      - name: errorf
+      - name: empty-block
+      - name: superfluous-else
+      - name: unused-parameter
+        disabled: true
+      - name: unreachable-code
+      - name: redefines-builtin-id
+
+  staticcheck:
+    checks:
+      - all
+      - -SA1019 # Ignore deprecation warnings (many in Fabric SDK)
+
+  gosec:
+    excludes:
+      - G101 # Look for hard coded credentials (too many false positives)
+      - G104 # Audit errors not checked (covered by errcheck)
+      - G304 # File path provided as taint input (necessary for operator)
+      - G401 # Use of weak cryptographic primitive (Fabric SDK uses these)
+      - G501 # Blocklisted import crypto/md5 (Fabric SDK dependency)
+      - G505 # Blocklisted import crypto/sha1 (Fabric SDK dependency)
+
+  nolintlint:
+    require-explanation: true
+    require-specific: true
+
 linters:
+  disable-all: true
   enable:
-    - typecheck
-    - goimports
-    - misspell
-    - govet
-    - golint
-    - ineffassign
+    # Default linters
+    - errcheck
     - gosimple
-    - deadcode
-    - structcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    # Additional linters
+    - bodyclose
+    - dogsled
+    - dupl
+    - errname
+    - errorlint
+    - exhaustive
+    - exportloopref
+    - gochecknoinits
+    - goconst
+    - gocritic
+    - gofmt
+    - goimports
+    - gosec
+    - misspell
+    - nakedret
+    - nilerr
+    - nolintlint
+    - prealloc
+    - predeclared
+    - revive
+    - unconvert
+    - unparam
+    - whitespace
 
 issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
   exclude-use-default: false
+
   exclude:
-    - should have a package comment
-    - error strings should not be capitalized or end with punctuation or a newline
+    - "error strings should not be capitalized"
+    - "error strings should not end with punctuation"
+
   exclude-rules:
-    # Exclude linters from running on auto-generated files.
+    # Exclude linters from running on auto-generated files
     - path: pkg/client
       linters:
-        - golint
-        - deadcode
+        - revive
+        - unused
+        - errcheck
 
-service:
-  golangci-lint-version: 1.27.0 # use the fixed version to not introduce new linters unexpectedly
+    # Exclude linters from running on test files
+    - path: _test\.go
+      linters:
+        - dupl
+        - errcheck
+        - gosec
+        - goconst
+
+    # Exclude linters from generated deep copy files
+    - path: zz_generated\.deepcopy\.go
+      linters:
+        - revive
+        - gocritic
+        - dupl
+
+    # Allow dot imports in tests (ginkgo/gomega)
+    - path: _test\.go
+      text: "dot-imports"
+      linters:
+        - revive
+
+    # Ignore long lines in certain files
+    - path: "(controllers|pkg/apis)"
+      linters:
+        - lll
+
+severity:
+  default-severity: warning
+  rules:
+    - linters:
+        - errcheck
+        - govet
+        - staticcheck
+      severity: error

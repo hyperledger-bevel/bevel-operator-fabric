@@ -3,34 +3,81 @@ on:
   pull_request:
 
 name: Test
+
 jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.5'
+          cache: true
+
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v4
+        with:
+          version: v1.61.0
+          args: --timeout=10m
+          skip-cache: false
+
   test:
+    name: Test
+    needs: lint
     strategy:
       matrix:
-        go-version: [ 1.23.5 ]
-        os: [ ubuntu-latest ]
+        go-version: ['1.23.5']
+        os: [ubuntu-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - name: Install Go
-        uses: actions/setup-go@v2
+        uses: actions/setup-go@v5
         with:
           go-version: ${{ matrix.go-version }}
+          cache: true
+
       - name: Checkout code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
+
       - name: Create k8s Kind Cluster
-        uses: helm/kind-action@v1.4.0
+        uses: helm/kind-action@v1.10.0
         with:
           cluster_name: kind
-          node_image: kindest/node:v1.25.8
+          node_image: kindest/node:v1.29.2
           config: .github/kind-config.yaml
 
       - name: Install operator
-        run: | 
+        run: |
           go install sigs.k8s.io/controller-tools/cmd/controller-gen@v0.16.4
           make generate manifests install
 
-      - name: Test
-        run: make test
+      - name: Test with coverage
+        run: |
+          make test-coverage
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./cover.out
+          flags: unittests
+          name: codecov-umbrella
+          fail_ci_if_error: false
+          verbose: true
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: |
+            cover.out
+            coverage.html
+          retention-days: 30
 
       - name: Show information
         if: ${{ failure() }}
@@ -46,7 +93,7 @@ jobs:
           kubectl get fabricfollowerchannels.hlf.kungfusoftware.es -A -o=custom-columns='NAME:metadata.name,NAMESPACE:metadata.namespace,STATE:status.status,MESSAGE:status.message'
           kubectl get configmap coredns -n kube-system -o yaml
           echo "Logs for hlf-operator deployment:"
-          kubectl logs -l app.kubernetes.io/name=hlf-operator -c manager --tail 2500 
+          kubectl logs -l app.kubernetes.io/name=hlf-operator -c manager --tail 2500
           kubectl get fabricmainchannels  -o yaml
           kubectl get fabricfollowerchannels  -o yaml
 
@@ -55,3 +102,26 @@ jobs:
 
           POD=$(kubectl get pod -l 'release in (ord-node1)'  -o jsonpath="{.items[0].metadata.name}")
           kubectl logs $POD
+
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          trivy-config: trivy.yaml
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+        continue-on-error: true
+
+      - name: Upload Trivy scan results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'trivy-results.sarif'
+        continue-on-error: true

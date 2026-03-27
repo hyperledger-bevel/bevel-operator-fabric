@@ -1,13 +1,14 @@
 package ca
 
 import (
-	"github.com/kfsoftware/hlf-operator/internal/github.com/hyperledger/fabric-ca/api"
-	"github.com/pkg/errors"
+	"fmt"
 	"io"
 	"strings"
 
 	"github.com/kfsoftware/hlf-operator/controllers/certs"
+	"github.com/kfsoftware/hlf-operator/internal/github.com/hyperledger/fabric-ca/api"
 	"github.com/kfsoftware/hlf-operator/kubectl-hlf/cmd/helpers"
+	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 )
 
@@ -90,15 +91,20 @@ func (c *registerCmd) run(args []string) error {
 		Attributes:   fabricSDKAttrs,
 	})
 	if err != nil {
+		if strings.Contains(err.Error(), "is already registered") {
+			fmt.Fprintf(c.out, "User '%s' is already registered, skipping\n", c.caOpts.User)
+			return nil
+		}
 		return err
 	}
+	fmt.Fprintf(c.out, "User '%s' registered successfully\n", c.caOpts.User)
 	return nil
 }
 func newCARegisterCmd(out io.Writer, errOut io.Writer) *cobra.Command {
 	c := registerCmd{out: out, errOut: errOut}
 	cmd := &cobra.Command{
 		Use:   "register",
-		Short: "Create a Fabric Certificate authority",
+		Short: "Register a new identity with a Fabric Certificate Authority",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := c.validate(); err != nil {
 				return err

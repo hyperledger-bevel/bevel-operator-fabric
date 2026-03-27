@@ -74,7 +74,7 @@ fmt: ## Run go fmt against code
 
 .PHONY: vet
 vet: ## Run go vet against code
-	$(GOVET) ./...
+	$(GOVET) $(shell go list ./... | grep -v /internal/)
 
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter

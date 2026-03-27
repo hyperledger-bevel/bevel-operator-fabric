@@ -56,6 +56,7 @@ func (c exportFopCmd) run() error {
 		if err != nil {
 			return err
 		}
+		defer res.Body.Close()
 		bodyBytes, err := ioutil.ReadAll(res.Body)
 		if err != nil {
 			return err

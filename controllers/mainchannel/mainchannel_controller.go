@@ -74,9 +74,6 @@ var (
 
 func (r *FabricMainChannelReconciler) finalizeMainChannel(reqLogger logr.Logger, m *hlfv1alpha1.FabricMainChannel) error {
 	ns := m.Namespace
-	if ns == "" {
-		ns = "default"
-	}
 
 	reqLogger.Info("Successfully finalized main channel",
 		"channel", m.Name,

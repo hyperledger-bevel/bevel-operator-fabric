@@ -74,9 +74,6 @@ var (
 
 func (r *FabricMainChannelReconciler) finalizeMainChannel(reqLogger logr.Logger, m *hlfv1alpha1.FabricMainChannel) error {
 	ns := m.Namespace
-	if ns == "" {
-		ns = "default"
-	}
 
 	reqLogger.Info("Successfully finalized main channel",
 		"channel", m.Name,
@@ -986,9 +983,6 @@ func (r *FabricMainChannelReconciler) saveChannelConfig(ctx context.Context, fab
 
 	configMapName := fmt.Sprintf("%s-config", fabricMainChannel.ObjectMeta.Name)
 	configMapNamespace := fabricMainChannel.Namespace
-	if configMapNamespace == "" {
-		configMapNamespace = "default"
-	}
 
 	reqLogger.Info("Saving channel configuration to ConfigMap",
 		"configMapName", configMapName,

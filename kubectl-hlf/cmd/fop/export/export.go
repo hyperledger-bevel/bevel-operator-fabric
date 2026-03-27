@@ -26,7 +26,7 @@ func (c exportFopCmd) validate() error {
 
 func (c exportFopCmd) run() error {
 	flags := os.O_WRONLY | os.O_CREATE | os.O_TRUNC
-	file, err := os.OpenFile(c.outFile, flags, 0644)
+	file, err := os.OpenFile(c.outFile, flags, 0600)
 	if err != nil {
 		return err
 	}
@@ -46,7 +46,7 @@ func (c exportFopCmd) run() error {
 		return err
 	}
 	tr := &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // required for CA communication
 	}
 	client := &http.Client{Transport: tr}
 	for _, fabricCA := range certAuths {

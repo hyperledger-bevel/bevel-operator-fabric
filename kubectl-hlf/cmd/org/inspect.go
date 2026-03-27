@@ -169,7 +169,7 @@ NodeOUs:
     OrganizationalUnitIdentifier: orderer
 `
 			nodeOusPath := path.Join(mspPath, "config.yaml")
-			err = ioutil.WriteFile(nodeOusPath, []byte(nodeOusContent), os.ModePerm)
+			err = ioutil.WriteFile(nodeOusPath, []byte(nodeOusContent), 0600)
 			if err != nil {
 				return err
 			}
@@ -198,21 +198,21 @@ NodeOUs:
 		mspCaCerts := path.Join(mspPath, "cacerts")
 		mspTLSCaCerts := path.Join(mspPath, "tlscacerts")
 
-		err = os.MkdirAll(mspCaCerts, os.ModePerm)
+		err = os.MkdirAll(mspCaCerts, 0750)
 		if err != nil {
 			return err
 		}
-		err = os.MkdirAll(mspTLSCaCerts, os.ModePerm)
+		err = os.MkdirAll(mspTLSCaCerts, 0750)
 		if err != nil {
 			return err
 		}
 		mspCACertPath := path.Join(mspCaCerts, "ca.pem")
-		err = ioutil.WriteFile(mspCACertPath, []byte(certAuth.Status.CACert), os.ModePerm)
+		err = ioutil.WriteFile(mspCACertPath, []byte(certAuth.Status.CACert), 0600)
 		if err != nil {
 			return err
 		}
 		mspTLSCACertPath := path.Join(mspTLSCaCerts, "tlsca.pem")
-		err = ioutil.WriteFile(mspTLSCACertPath, []byte(certAuth.Status.TLSCACert), os.ModePerm)
+		err = ioutil.WriteFile(mspTLSCACertPath, []byte(certAuth.Status.TLSCACert), 0600)
 		if err != nil {
 			return err
 		}
@@ -233,7 +233,7 @@ NodeOUs:
     OrganizationalUnitIdentifier: orderer
 `
 		nodeOusPath := path.Join(mspPath, "config.yaml")
-		err = ioutil.WriteFile(nodeOusPath, []byte(nodeOusContent), os.ModePerm)
+		err = ioutil.WriteFile(nodeOusPath, []byte(nodeOusContent), 0600)
 		if err != nil {
 			return err
 		}

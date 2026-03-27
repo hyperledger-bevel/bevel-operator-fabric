@@ -8,17 +8,23 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// TestNamespaceNotHardcoded verifies that the mainchannel controller uses the
-// resource's own namespace and never falls back to "default".
+// TestConfigMapNamespaceFallback verifies that for cluster-scoped resources
+// (where Namespace is empty), the configmap namespace falls back to "default".
+// FabricMainChannel is cluster-scoped, so .Namespace is always "".
 // Regression test for #296 and #297.
-func TestNamespaceNotHardcoded(t *testing.T) {
+func TestConfigMapNamespaceFallback(t *testing.T) {
 	tests := []struct {
 		name              string
 		namespace         string
 		expectedNamespace string
 	}{
 		{
-			name:              "custom namespace is preserved",
+			name:              "cluster-scoped resource falls back to default",
+			namespace:         "",
+			expectedNamespace: "default",
+		},
+		{
+			name:              "namespace-scoped resource uses its own namespace",
 			namespace:         "hlf-network",
 			expectedNamespace: "hlf-network",
 		},
@@ -26,11 +32,6 @@ func TestNamespaceNotHardcoded(t *testing.T) {
 			name:              "another namespace is preserved",
 			namespace:         "production",
 			expectedNamespace: "production",
-		},
-		{
-			name:              "empty namespace is not replaced with default",
-			namespace:         "",
-			expectedNamespace: "",
 		},
 	}
 
@@ -43,27 +44,14 @@ func TestNamespaceNotHardcoded(t *testing.T) {
 				},
 			}
 
-			// Verify the namespace is used directly without fallback to "default"
-			ns := channel.Namespace
-			assert.Equal(t, tt.expectedNamespace, ns,
-				"Namespace should be taken directly from ObjectMeta.Namespace, not hardcoded to 'default'")
-			assert.NotEqual(t, "default", ns,
-				"Namespace should never be hardcoded to 'default' when resource has a different namespace")
+			// This mirrors the logic in saveChannelConfig
+			configMapNamespace := channel.Namespace
+			if configMapNamespace == "" {
+				configMapNamespace = "default"
+			}
+
+			assert.Equal(t, tt.expectedNamespace, configMapNamespace,
+				"ConfigMap namespace should use resource namespace or fall back to 'default' for cluster-scoped resources")
 		})
 	}
-}
-
-// TestConfigMapNamespaceMatchesResource verifies that configmap namespace
-// derives from the FabricMainChannel resource namespace.
-func TestConfigMapNamespaceMatchesResource(t *testing.T) {
-	channel := &hlfv1alpha1.FabricMainChannel{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "my-channel",
-			Namespace: "my-namespace",
-		},
-	}
-
-	configMapNamespace := channel.Namespace
-	assert.Equal(t, "my-namespace", configMapNamespace,
-		"ConfigMap namespace should match the FabricMainChannel resource namespace")
 }

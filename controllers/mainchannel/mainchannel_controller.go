@@ -983,6 +983,9 @@ func (r *FabricMainChannelReconciler) saveChannelConfig(ctx context.Context, fab
 
 	configMapName := fmt.Sprintf("%s-config", fabricMainChannel.ObjectMeta.Name)
 	configMapNamespace := fabricMainChannel.Namespace
+	if configMapNamespace == "" {
+		configMapNamespace = "default"
+	}
 
 	reqLogger.Info("Saving channel configuration to ConfigMap",
 		"configMapName", configMapName,

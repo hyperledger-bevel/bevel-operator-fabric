@@ -5,6 +5,7 @@ import (
 	"crypto/x509"
 	"fmt"
 	"io/ioutil"
+	"os"
 	"path/filepath"
 
 	"github.com/sirupsen/logrus"
@@ -129,7 +130,7 @@ type RevokeUserRequest struct {
 }
 
 func RevokeUser(params RevokeUserRequest) error {
-	caClient, err := GetClient(FabricCAParams{
+	caClient, cleanup, err := GetClient(FabricCAParams{
 		TLSCert:      params.TLSCert,
 		URL:          params.URL,
 		Name:         params.Name,
@@ -140,6 +141,7 @@ func RevokeUser(params RevokeUserRequest) error {
 	if err != nil {
 		return err
 	}
+	defer cleanup()
 	myIdentity, err := caClient.LoadMyIdentity()
 	if err != nil {
 		return err
@@ -166,7 +168,7 @@ type RegisterUserRequest struct {
 }
 
 func RegisterUser(params RegisterUserRequest) (string, error) {
-	caClient, err := GetClient(FabricCAParams{
+	caClient, cleanup, err := GetClient(FabricCAParams{
 		TLSCert:      params.TLSCert,
 		URL:          params.URL,
 		Name:         params.Name,
@@ -177,6 +179,7 @@ func RegisterUser(params RegisterUserRequest) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	defer cleanup()
 	enrollResponse, err := caClient.Enroll(&api.EnrollmentRequest{
 		Name:     params.EnrollID,
 		Secret:   params.EnrollSecret,
@@ -203,7 +206,7 @@ func RegisterUser(params RegisterUserRequest) (string, error) {
 }
 
 func GetCAInfo(params GetCAInfoRequest) (*lib.GetCAInfoResponse, error) {
-	caClient, err := GetClient(FabricCAParams{
+	caClient, cleanup, err := GetClient(FabricCAParams{
 		TLSCert: params.TLSCert,
 		URL:     params.URL,
 		Name:    params.Name,
@@ -212,6 +215,7 @@ func GetCAInfo(params GetCAInfoRequest) (*lib.GetCAInfoResponse, error) {
 	if err != nil {
 		return nil, err
 	}
+	defer cleanup()
 	caInfo, err := caClient.GetCAInfo(&api.GetCAInfoRequest{})
 	if err != nil {
 		return nil, err
@@ -220,7 +224,7 @@ func GetCAInfo(params GetCAInfoRequest) (*lib.GetCAInfoResponse, error) {
 }
 
 func ReenrollUser(params ReenrollUserRequest, certPem string, ecdsaKey *ecdsa.PrivateKey) (*x509.Certificate, *x509.Certificate, error) {
-	caClient, err := GetClient(FabricCAParams{
+	caClient, cleanup, err := GetClient(FabricCAParams{
 		TLSCert: params.TLSCert,
 		URL:     params.URL,
 		Name:    params.Name,
@@ -229,6 +233,7 @@ func ReenrollUser(params ReenrollUserRequest, certPem string, ecdsaKey *ecdsa.Pr
 	if err != nil {
 		return nil, nil, err
 	}
+	defer cleanup()
 	priv, err := bccsputils.PrivateKeyToDER(ecdsaKey)
 	if err != nil {
 		return nil, nil, errors.WithMessage(err, fmt.Sprintf("Failed to convert ECDSA private key for '%v'", ecdsaKey))
@@ -314,8 +319,7 @@ func readKey(client *lib.Client) (*ecdsa.PrivateKey, error) {
 	return ecdsaKey, nil
 }
 func EnrollUser(params EnrollUserRequest) (*x509.Certificate, *ecdsa.PrivateKey, *x509.Certificate, error) {
-
-	caClient, err := GetClient(FabricCAParams{
+	caClient, cleanup, err := GetClient(FabricCAParams{
 		TLSCert: params.TLSCert,
 		URL:     params.URL,
 		Name:    params.Name,
@@ -324,6 +328,7 @@ func EnrollUser(params EnrollUserRequest) (*x509.Certificate, *ecdsa.PrivateKey,
 	if err != nil {
 		return nil, nil, nil, err
 	}
+	defer cleanup()
 	enrollmentRequest := &api.EnrollmentRequest{
 		Name:     params.User,
 		Secret:   params.Secret,
@@ -371,11 +376,16 @@ type GetUserRequest struct {
 	User         string
 }
 
-func GetClient(ca FabricCAParams) (*lib.Client, error) {
+// GetClient creates a Fabric CA client with temporary files. The returned cleanup
+// function must be called (typically via defer) to remove temporary files.
+func GetClient(ca FabricCAParams) (*lib.Client, func(), error) {
 	// create temporary directory
 	caHomeDir, err := ioutil.TempDir("", "fabric-ca-client")
 	if err != nil {
-		return nil, nil
+		return nil, nil, err
+	}
+	cleanup := func() {
+		os.RemoveAll(caHomeDir)
 	}
 
 	client := &lib.Client{
@@ -390,12 +400,14 @@ func GetClient(ca FabricCAParams) (*lib.Client, error) {
 		// create temporary file
 		caCertFile, err := ioutil.TempFile("", "ca-cert")
 		if err != nil {
-			return nil, nil
+			cleanup()
+			return nil, nil, err
 		}
 		// write ca cert to file
 		_, err = caCertFile.Write([]byte(ca.TLSCert))
 		if err != nil {
-			return nil, nil
+			cleanup()
+			return nil, nil, err
 		}
 		client.Config.TLS = tls.ClientTLSConfig{
 			Enabled:   true,
@@ -410,7 +422,8 @@ func GetClient(ca FabricCAParams) (*lib.Client, error) {
 
 	err = client.Init()
 	if err != nil {
-		return nil, err
+		cleanup()
+		return nil, nil, err
 	}
-	return client, err
+	return client, cleanup, err
 }

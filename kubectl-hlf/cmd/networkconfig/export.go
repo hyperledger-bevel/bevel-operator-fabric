@@ -74,7 +74,7 @@ func (d *networkConfigExportCmd) run(args []string) error {
 	}
 	networkConfigBytes := secret.Data["config.yaml"]
 	if d.output != "" {
-		err = ioutil.WriteFile(d.output, networkConfigBytes, 0777)
+		err = ioutil.WriteFile(d.output, networkConfigBytes, 0600)
 		if err != nil {
 			return err
 		}

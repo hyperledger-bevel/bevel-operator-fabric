@@ -127,7 +127,7 @@ func (c *enrollCmd) run(args []string) error {
 	if err != nil {
 		return err
 	}
-	err = ioutil.WriteFile(c.fileOutput, userYaml, 0644)
+	err = ioutil.WriteFile(c.fileOutput, userYaml, 0600)
 	if err != nil {
 		return err
 	}

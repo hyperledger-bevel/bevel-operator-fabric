@@ -250,7 +250,7 @@ NodeOUs:
 	if err != nil {
 		return err
 	}
-	err = ioutil.WriteFile("configtx.yaml", buf.Bytes(), 0777)
+	err = ioutil.WriteFile("configtx.yaml", buf.Bytes(), 0600)
 	if err != nil {
 		return err
 	}

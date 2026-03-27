@@ -72,7 +72,7 @@ func (c exportOrdererCmd) run(args []string) error {
 	if err != nil {
 		return err
 	}
-	err = ioutil.WriteFile(c.outFile, ordererBytes, 0755)
+	err = ioutil.WriteFile(c.outFile, ordererBytes, 0600)
 	if err != nil {
 		return err
 	}

@@ -1022,7 +1022,7 @@ func GetCAState(clientSet *kubernetes.Clientset, ca *hlfv1alpha1.FabricCA, relea
 		if ca.Spec.Replicas != nil {
 			replicas = *ca.Spec.Replicas
 		}
-		if dep.Status.ReadyReplicas == int32(replicas) {
+		if dep.Status.ReadyReplicas == int32(replicas) { //nolint:gosec // replica count fits int32
 			r.Status = hlfv1alpha1.RunningStatus
 		} else {
 			r.Status = hlfv1alpha1.PendingStatus

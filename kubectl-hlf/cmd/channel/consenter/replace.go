@@ -110,7 +110,7 @@ func (c *replaceonsenterCmd) run() error {
 	if err != nil {
 		return err
 	}
-	err = ioutil.WriteFile(c.output, channelConfigBytes, 0755)
+	err = ioutil.WriteFile(c.output, channelConfigBytes, 0600)
 	if err != nil {
 		return err
 	}

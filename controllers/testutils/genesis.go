@@ -370,7 +370,7 @@ func GetProfileConfig(
 			ordererPort := node.Port
 			consenters = append(consenters, &etcdraft.Consenter{
 				Host:          ordererHost,
-				Port:          uint32(ordererPort),
+				Port:          uint32(ordererPort), //nolint:gosec // port fits uint32
 				ClientTlsCert: []byte(clientCertFile.Name()),
 				ServerTlsCert: []byte(serverCertFile.Name()),
 			})
@@ -478,19 +478,19 @@ NodeOUs:
 			EtcdRaft: &etcdraft.ConfigMetadata{
 				Consenters: consenters,
 				Options: &etcdraft.Options{
-					SnapshotIntervalSize: uint32(config.SnapshotIntervalSize),
+					SnapshotIntervalSize: uint32(config.SnapshotIntervalSize), //nolint:gosec // config value fits uint32
 					TickInterval:         config.TickInterval,
-					ElectionTick:         uint32(config.ElectionTick),
-					HeartbeatTick:        uint32(config.HeartbeatTick),
-					MaxInflightBlocks:    uint32(config.MaxInflightBlocks),
+					ElectionTick:         uint32(config.ElectionTick),      //nolint:gosec // config value fits uint32
+					HeartbeatTick:        uint32(config.HeartbeatTick),     //nolint:gosec // config value fits uint32
+					MaxInflightBlocks:    uint32(config.MaxInflightBlocks), //nolint:gosec // config value fits uint32
 				},
 			},
 			Addresses:    ordererAddresses,
 			BatchTimeout: config.BatchTimeout,
 			BatchSize: genesisconfig.BatchSize{
-				MaxMessageCount:   uint32(config.MaxMessageCount),
-				AbsoluteMaxBytes:  uint32(config.AbsoluteMaxBytes),
-				PreferredMaxBytes: uint32(config.PreferredMaxBytes),
+				MaxMessageCount:   uint32(config.MaxMessageCount),   //nolint:gosec // config value fits uint32
+				AbsoluteMaxBytes:  uint32(config.AbsoluteMaxBytes),  //nolint:gosec // config value fits uint32
+				PreferredMaxBytes: uint32(config.PreferredMaxBytes), //nolint:gosec // config value fits uint32
 			},
 			Organizations: ordererOrganizations,
 			Policies: map[string]*genesisconfig.Policy{
@@ -603,7 +603,7 @@ func GetChannelProfileConfig(
 		ordererPort := node.Port
 		consenters = append(consenters, &etcdraft.Consenter{
 			Host:          ordererHost,
-			Port:          uint32(ordererPort),
+			Port:          uint32(ordererPort), //nolint:gosec // port fits uint32
 			ClientTlsCert: []byte(clientCertFile.Name()),
 			ServerTlsCert: []byte(serverCertFile.Name()),
 		})

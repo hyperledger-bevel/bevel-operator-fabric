@@ -41,6 +41,8 @@ import (
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
+	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	"github.com/kfsoftware/hlf-operator/controllers/ca"
 	"github.com/kfsoftware/hlf-operator/controllers/ordservice"
@@ -141,6 +143,11 @@ func main() {
 
 	mgr, err := ctrl.NewManager(restConfig, ctrl.Options{
 		Scheme:           scheme,
+		Metrics: metricsserver.Options{
+			BindAddress:    metricsAddr,
+			SecureServing:  true,
+			FilterProvider: filters.WithAuthenticationAndAuthorization,
+		},
 		LeaderElection:   enableLeaderElection,
 		LeaderElectionID: "a1f969eb.kungfusoftware.es",
 	})

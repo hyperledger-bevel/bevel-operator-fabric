@@ -142,7 +142,7 @@ func main() {
 	}()
 
 	mgr, err := ctrl.NewManager(restConfig, ctrl.Options{
-		Scheme:           scheme,
+		Scheme: scheme,
 		Metrics: metricsserver.Options{
 			BindAddress:    metricsAddr,
 			SecureServing:  true,

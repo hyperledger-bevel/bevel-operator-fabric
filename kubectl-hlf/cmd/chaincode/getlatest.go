@@ -69,7 +69,7 @@ func (c *getLatestInfoCmd) run(out io.Writer, stdErr io.Writer) error {
 	} else {
 		data = []byte(strconv.FormatInt(latestCC.Sequence, 10))
 	}
-	err = ioutil.WriteFile(c.outFile, data, 0777)
+	err = ioutil.WriteFile(c.outFile, data, 0600)
 	if err != nil {
 		return err
 	}

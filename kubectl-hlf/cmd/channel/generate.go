@@ -246,9 +246,9 @@ func (c generateChannelCmd) run() error {
 		testutils.WithPeerOrgs(peerOrgs...),
 		testutils.WithConsenters(consenters...),
 		testutils.WithBatchSize(&orderer.BatchSize{
-			MaxMessageCount:   uint32(c.maxMessageCount),
-			AbsoluteMaxBytes:  uint32(c.absoluteMaxBytes),
-			PreferredMaxBytes: uint32(c.preferredMaxBytes),
+			MaxMessageCount:   uint32(c.maxMessageCount),   //nolint:gosec // config value fits uint32
+			AbsoluteMaxBytes:  uint32(c.absoluteMaxBytes),  //nolint:gosec // config value fits uint32
+			PreferredMaxBytes: uint32(c.preferredMaxBytes), //nolint:gosec // config value fits uint32
 		}),
 		testutils.WithBatchTimeout(time.Duration(c.batchTimeout)*time.Second),
 		testutils.WithConsensus(c.consensus),
@@ -260,7 +260,7 @@ func (c generateChannelCmd) run() error {
 	if err != nil {
 		return err
 	}
-	err = os.WriteFile(c.output, blockBytes, 0755)
+	err = os.WriteFile(c.output, blockBytes, 0600)
 	if err != nil {
 		return err
 	}

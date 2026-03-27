@@ -123,7 +123,7 @@ func (c *signUpdateChannelCmd) run(out io.Writer) error {
 	}
 
 	if c.output != "" {
-		err = os.WriteFile(c.output, signatureBytes, 0644)
+		err = os.WriteFile(c.output, signatureBytes, 0600)
 		if err != nil {
 			return err
 		}

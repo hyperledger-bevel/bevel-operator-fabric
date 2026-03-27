@@ -93,7 +93,7 @@ func (c *addOrgCmd) run(out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	err = ioutil.WriteFile(c.output, configEnvelopeBytes, 0755)
+	err = ioutil.WriteFile(c.output, configEnvelopeBytes, 0600)
 	if err != nil {
 		return err
 	}

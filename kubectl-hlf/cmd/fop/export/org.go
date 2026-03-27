@@ -65,7 +65,7 @@ func (c exportOrgCmd) run(args []string) error {
 	if err != nil {
 		return err
 	}
-	err = ioutil.WriteFile(c.outFile, caBytes, 0755)
+	err = ioutil.WriteFile(c.outFile, caBytes, 0600)
 	if err != nil {
 		return err
 	}

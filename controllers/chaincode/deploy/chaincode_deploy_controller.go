@@ -429,7 +429,7 @@ func (r *FabricChaincodeDeployReconciler) Reconcile(ctx context.Context, req ctr
 				TCPSocket: &corev1.TCPSocketAction{
 					Port: intstr.IntOrString{
 						Type:   intstr.Int,
-						IntVal: int32(chaincodePort),
+						IntVal: int32(chaincodePort), //nolint:gosec // port number fits int32
 					},
 				},
 			},
@@ -445,7 +445,7 @@ func (r *FabricChaincodeDeployReconciler) Reconcile(ctx context.Context, req ctr
 				TCPSocket: &corev1.TCPSocketAction{
 					Port: intstr.IntOrString{
 						Type:   intstr.Int,
-						IntVal: int32(chaincodePort),
+						IntVal: int32(chaincodePort), //nolint:gosec // port number fits int32
 					},
 				},
 			},
@@ -495,7 +495,7 @@ func (r *FabricChaincodeDeployReconciler) Reconcile(ctx context.Context, req ctr
 			Annotations: fabricChaincode.Spec.Annotations,
 		},
 		Spec: appsv1.DeploymentSpec{
-			Replicas: func(i int32) *int32 { return &i }(int32(replicas)),
+			Replicas: func(i int32) *int32 { return &i }(int32(replicas)), //nolint:gosec // replica count fits int32
 			Selector: &metav1.LabelSelector{
 				MatchLabels: labels,
 			},

@@ -193,9 +193,9 @@ func (s channelStore) GetApplicationChannelBlock(ctx context.Context, opts ...Ch
 		for i, consenter := range o.consenters {
 			consenterMapping = append(consenterMapping, cb.Consenter{
 				Host:          consenter.host,
-				Port:          uint32(consenter.port),
+				Port:          uint32(consenter.port), //nolint:gosec // safe conversion
 				MspId:         consenter.mspId,
-				Id:            uint32(i + 1),
+				Id:            uint32(i + 1), //nolint:gosec // safe conversion
 				Identity:      utils.EncodeX509Certificate(consenter.signCert),
 				ClientTlsCert: utils.EncodeX509Certificate(consenter.tlsCert),
 				ServerTlsCert: utils.EncodeX509Certificate(consenter.tlsCert),

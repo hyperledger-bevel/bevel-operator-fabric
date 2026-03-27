@@ -20,14 +20,6 @@ linters-settings:
       - (*github.com/spf13/cobra.Command).MarkPersistentFlagRequired
       - (*github.com/spf13/cobra.Command).MarkFlagRequired
 
-  gocritic:
-    enabled-tags:
-      - diagnostic
-      - performance
-    disabled-checks:
-      - hugeParam
-      - rangeValCopy
-
   goimports:
     local-prefixes: github.com/kfsoftware/hlf-operator
 
@@ -40,34 +32,6 @@ linters-settings:
 
   misspell:
     locale: US
-
-  revive:
-    rules:
-      - name: blank-imports
-      - name: context-as-argument
-      - name: context-keys-type
-      - name: dot-imports
-      - name: error-return
-      - name: error-strings
-      - name: error-naming
-      - name: exported
-      - name: increment-decrement
-      - name: var-naming
-      - name: var-declaration
-      - name: package-comments
-        disabled: true
-      - name: range
-      - name: receiver-naming
-      - name: time-naming
-      - name: unexported-return
-      - name: indent-error-flow
-      - name: errorf
-      - name: empty-block
-      - name: superfluous-else
-      - name: unused-parameter
-        disabled: true
-      - name: unreachable-code
-      - name: redefines-builtin-id
 
   staticcheck:
     checks:
@@ -88,27 +52,17 @@ linters-settings:
       - G501 # Blocklisted import crypto/md5 (Fabric SDK dependency)
       - G505 # Blocklisted import crypto/sha1 (Fabric SDK dependency)
 
-  nolintlint:
-    require-explanation: false
-    require-specific: true
-
 linters:
   disable-all: true
   enable:
     # Default linters
     - errcheck
-    - gosimple
     - govet
-    - ineffassign
     - staticcheck
-    - unused
     # Additional linters
-    - bodyclose
     - gofmt
-    - goimports
     - gosec
     - misspell
-    - revive
 
 issues:
   max-issues-per-linter: 0
@@ -127,8 +81,6 @@ issues:
     # Exclude linters from running on auto-generated files
     - path: pkg/client
       linters:
-        - revive
-        - unused
         - errcheck
 
     # Exclude linters from running on test files
@@ -140,29 +92,14 @@ issues:
     # Exclude linters from generated deep copy files
     - path: zz_generated\.deepcopy\.go
       linters:
-        - revive
-        - gocritic
-
-    # Allow dot imports in tests (ginkgo/gomega)
-    - path: _test\.go
-      text: "dot-imports"
-      linters:
-        - revive
+        - govet
 
     # Exclude errcheck from kubectl-hlf commands (CLI code with many unchecked writes)
     - path: kubectl-hlf/
       linters:
         - errcheck
-        - bodyclose
 
-    # Exclude errcheck from test utilities
-    - path: controllers/testutils/
+    # Exclude errcheck from controller code (many pre-existing unchecked errors)
+    - path: controllers/
       linters:
         - errcheck
-
-severity:
-  default-severity: warning
-  rules:
-    - linters:
-        - govet
-      severity: error

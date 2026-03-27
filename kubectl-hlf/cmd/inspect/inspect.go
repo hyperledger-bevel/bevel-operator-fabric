@@ -296,7 +296,7 @@ func (c *inspectCmd) run(out io.Writer) error {
 	}
 
 	if c.fileOutput != "" {
-		err = ioutil.WriteFile(c.fileOutput, data, 0644)
+		err = ioutil.WriteFile(c.fileOutput, data, 0600)
 		if err != nil {
 			return err
 		}

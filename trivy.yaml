@@ -1,0 +1,35 @@
+# Trivy security scanner configuration
+# https://aquasecurity.github.io/trivy/latest/docs/references/configuration/config-file/
+
+scan:
+  # Skip directories that contain vendored/internal code
+  skip-dirs:
+    - internal
+    - vendor
+    - .git
+
+severity:
+  - CRITICAL
+  - HIGH
+  - MEDIUM
+
+vulnerability:
+  # Ignore unfixed vulnerabilities
+  ignore-unfixed: true
+
+secret:
+  # Disable secret scanning (handled by detect-secrets)
+  disabled: false
+
+license:
+  # Skip license scanning
+  disabled: true
+
+misconfiguration:
+  # Enable Kubernetes manifest scanning
+  include:
+    - kubernetes
+
+  # Skip certain checks
+  skip:
+    - DS002  # Image user should not be root (operator needs root sometimes)

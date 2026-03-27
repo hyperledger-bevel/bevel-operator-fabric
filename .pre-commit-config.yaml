@@ -1,0 +1,83 @@
+# Pre-commit hooks configuration
+# See https://pre-commit.com for more information
+# Install: pip install pre-commit && pre-commit install
+
+repos:
+  # General hooks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: trailing-whitespace
+        exclude: ^(internal/|pkg/client/)
+      - id: end-of-file-fixer
+        exclude: ^(internal/|pkg/client/)
+      - id: check-yaml
+        args: ['--unsafe']  # Allow custom tags in Kubernetes manifests
+      - id: check-json
+      - id: check-added-large-files
+        args: ['--maxkb=1000']
+      - id: check-merge-conflict
+      - id: detect-private-key
+      - id: mixed-line-ending
+        args: ['--fix=lf']
+
+  # Go specific hooks
+  - repo: https://github.com/dnephin/pre-commit-golang
+    rev: v0.5.1
+    hooks:
+      - id: go-fmt
+        exclude: ^(internal/|pkg/client/)
+      - id: go-imports
+        exclude: ^(internal/|pkg/client/)
+      - id: go-vet
+        exclude: ^(internal/|pkg/client/)
+      - id: go-mod-tidy
+
+  # golangci-lint
+  - repo: https://github.com/golangci/golangci-lint
+    rev: v1.61.0
+    hooks:
+      - id: golangci-lint
+        args: ['--timeout=10m']
+        exclude: ^(internal/|pkg/client/)
+
+  # Helm chart linting
+  - repo: https://github.com/gruntwork-io/pre-commit
+    rev: v0.1.23
+    hooks:
+      - id: helmlint
+        files: ^charts/
+
+  # Shell script linting
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.9.0.6
+    hooks:
+      - id: shellcheck
+        args: ['--severity=warning']
+
+  # Markdown linting
+  - repo: https://github.com/igorshubovych/markdownlint-cli
+    rev: v0.38.0
+    hooks:
+      - id: markdownlint
+        args: ['--fix', '--disable', 'MD013', 'MD033', 'MD041', '--']
+        exclude: ^(internal/|website-docs/)
+
+  # Security scanning
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.4.0
+    hooks:
+      - id: detect-secrets
+        args: ['--baseline', '.secrets.baseline']
+        exclude: ^(internal/|fixtures/|\.secrets\.baseline)
+
+# CI configuration
+ci:
+  autofix_commit_msg: |
+    [pre-commit.ci] auto fixes from pre-commit hooks
+  autofix_prs: true
+  autoupdate_branch: ''
+  autoupdate_commit_msg: '[pre-commit.ci] pre-commit autoupdate'
+  autoupdate_schedule: weekly
+  skip: [go-vet, golangci-lint, helmlint]  # These need Go/Helm installed
+  submodules: false

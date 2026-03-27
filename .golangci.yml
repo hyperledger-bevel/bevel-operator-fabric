@@ -1,37 +1,105 @@
+# golangci-lint configuration
+# https://golangci-lint.run/usage/configuration/
+
 run:
-  skip-dirs:
-    - internal
+  timeout: 10m
 
 linters-settings:
-  golint:
-    min-confidence: 0
+  errcheck:
+    check-type-assertions: false
+    check-blank: false
+    exclude-functions:
+      - io.Copy
+      - io.WriteString
+      - fmt.Fprint
+      - fmt.Fprintf
+      - fmt.Fprintln
+      - (io.Closer).Close
+      - (*os.File).Close
+      - (net/http.ResponseWriter).Write
+      - (*github.com/spf13/cobra.Command).MarkPersistentFlagRequired
+      - (*github.com/spf13/cobra.Command).MarkFlagRequired
+
+  goimports:
+    local-prefixes: github.com/kfsoftware/hlf-operator
+
+  govet:
+    enable-all: true
+    disable:
+      - fieldalignment
+      - shadow
+      - nilness
 
   misspell:
     locale: US
 
+  staticcheck:
+    checks:
+      - all
+      - -SA1019 # Ignore deprecation warnings (many in Fabric SDK)
+      - -SA4006 # Ignore unused value assignments (many in existing code)
+      - -SA4009 # Ignore overwritten errors before checking (many in existing code)
+      - -SA4010 # Ignore unused append results (existing code)
+      - -SA9003 # Ignore empty branches (existing code)
+      - -SA9009 # Ignore malformed compiler directives (existing code)
+
+  gosec:
+    excludes:
+      - G101 # Look for hard coded credentials (too many false positives)
+      - G104 # Audit errors not checked (covered by errcheck)
+      - G304 # File path provided as taint input (necessary for operator)
+      - G401 # Use of weak cryptographic primitive (Fabric SDK uses these)
+      - G501 # Blocklisted import crypto/md5 (Fabric SDK dependency)
+      - G505 # Blocklisted import crypto/sha1 (Fabric SDK dependency)
+
 linters:
+  disable-all: true
   enable:
-    - typecheck
-    - goimports
-    - misspell
+    # Default linters
+    - errcheck
     - govet
-    - golint
-    - ineffassign
-    - gosimple
-    - deadcode
-    - structcheck
+    - staticcheck
+    # Additional linters
+    - gofmt
+    - gosec
+    - misspell
 
 issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
   exclude-use-default: false
+
+  exclude-dirs:
+    - internal
+    - pkg/client
+
   exclude:
-    - should have a package comment
-    - error strings should not be capitalized or end with punctuation or a newline
+    - "error strings should not be capitalized"
+    - "error strings should not end with punctuation"
+
   exclude-rules:
-    # Exclude linters from running on auto-generated files.
+    # Exclude linters from running on auto-generated files
     - path: pkg/client
       linters:
-        - golint
-        - deadcode
+        - errcheck
 
-service:
-  golangci-lint-version: 1.27.0 # use the fixed version to not introduce new linters unexpectedly
+    # Exclude linters from running on test files
+    - path: _test\.go
+      linters:
+        - errcheck
+        - gosec
+
+    # Exclude linters from generated deep copy files
+    - path: zz_generated\.deepcopy\.go
+      linters:
+        - govet
+
+    # Exclude errcheck from kubectl-hlf commands (CLI code with many unchecked writes)
+    - path: kubectl-hlf/
+      linters:
+        - errcheck
+
+    # Exclude errcheck from controller code (many pre-existing unchecked errors)
+    - path: controllers/
+      linters:
+        - errcheck

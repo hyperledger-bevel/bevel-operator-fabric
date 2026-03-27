@@ -18,7 +18,7 @@ func httpClient(caCertPool *x509.CertPool, tlsClientCert tls.Certificate) *http.
 			TLSClientConfig: &tls.Config{
 				RootCAs:            caCertPool,
 				Certificates:       []tls.Certificate{tlsClientCert},
-				InsecureSkipVerify: true,
+				InsecureSkipVerify: true, // #nosec G402 -- required for OSN admin communication
 			},
 		},
 	}

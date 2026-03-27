@@ -5,7 +5,7 @@ import (
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v2"
 	"io"
-	"io/ioutil"
+	"os"
 )
 
 type Options struct {
@@ -39,7 +39,7 @@ func (c *addUserCmd) validate() error {
 }
 
 func (c *addUserCmd) run(args []string) error {
-	configBytes, err := ioutil.ReadFile(c.opts.config)
+	configBytes, err := os.ReadFile(c.opts.config)
 	if err != nil {
 		return err
 	}
@@ -49,7 +49,7 @@ func (c *addUserCmd) run(args []string) error {
 		return err
 	}
 	userMap := map[string]interface{}{}
-	userBytes, err := ioutil.ReadFile(c.opts.userPath)
+	userBytes, err := os.ReadFile(c.opts.userPath)
 	if err != nil {
 		return err
 	}
@@ -65,7 +65,7 @@ func (c *addUserCmd) run(args []string) error {
 	if err != nil {
 		return err
 	}
-	err = ioutil.WriteFile(c.opts.config, configBytesNew, 0777)
+	err = os.WriteFile(c.opts.config, configBytesNew, 0600)
 	if err != nil {
 		return err
 	}

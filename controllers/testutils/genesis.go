@@ -12,7 +12,6 @@ import (
 	"github.com/kfsoftware/hlf-operator/internal/github.com/hyperledger/fabric/sdkinternal/configtxgen/encoder"
 
 	genesisconfig2 "github.com/kfsoftware/hlf-operator/internal/github.com/hyperledger/fabric/sdkinternal/configtxgen/genesisconfig"
-	"io/ioutil"
 	"log"
 	"os"
 	"path"
@@ -49,25 +48,25 @@ func memberToOrg(member PeerOrganization) (*genesisconfig.Organization, error) {
 	serverTlsCertPem := []byte(member.TLSRootCert)
 	serverRootCert := []byte(member.RootCert)
 	mspID := member.MspID
-	mspDir, err := ioutil.TempDir("", fmt.Sprintf("mspdir_%s", mspID))
+	mspDir, err := os.MkdirTemp("", fmt.Sprintf("mspdir_%s", mspID))
 	if err != nil {
 		return nil, err
 	}
 	tlsCaCertsPath := path.Join(mspDir, "tlscacerts")
-	err = os.Mkdir(tlsCaCertsPath, os.ModePerm)
+	err = os.Mkdir(tlsCaCertsPath, 0750)
 	if err != nil {
 		return nil, err
 	}
 	caCertsPath := path.Join(mspDir, "cacerts")
-	err = os.Mkdir(caCertsPath, os.ModePerm)
+	err = os.Mkdir(caCertsPath, 0750)
 	if err != nil {
 		return nil, err
 	}
-	err = ioutil.WriteFile(path.Join(caCertsPath, "cacert.pem"), serverRootCert, os.ModePerm)
+	err = os.WriteFile(path.Join(caCertsPath, "cacert.pem"), serverRootCert, 0600)
 	if err != nil {
 		return nil, err
 	}
-	err = ioutil.WriteFile(path.Join(tlsCaCertsPath, "tlscacert.pem"), serverTlsCertPem, os.ModePerm)
+	err = os.WriteFile(path.Join(tlsCaCertsPath, "tlscacert.pem"), serverTlsCertPem, 0600)
 	if err != nil {
 		return nil, err
 	}
@@ -87,7 +86,7 @@ NodeOUs:
     Certificate: cacerts/cacert.pem
     OrganizationalUnitIdentifier: orderer
 `
-	err = ioutil.WriteFile(path.Join(mspDir, "config.yaml"), []byte(configNodeOU), os.ModePerm)
+	err = os.WriteFile(path.Join(mspDir, "config.yaml"), []byte(configNodeOU), 0600)
 	if err != nil {
 		return nil, err
 	}
@@ -141,25 +140,25 @@ func memberToOrgUpdate(member PeerOrganization) (*genesisconfig2.Organization, e
 	serverTlsCertPem := []byte(member.TLSRootCert)
 	rootCertPem := []byte(member.RootCert)
 	mspID := member.MspID
-	mspDir, err := ioutil.TempDir("", fmt.Sprintf("mspdir_%s", mspID))
+	mspDir, err := os.MkdirTemp("", fmt.Sprintf("mspdir_%s", mspID))
 	if err != nil {
 		return nil, err
 	}
 	tlsCaCertsPath := path.Join(mspDir, "tlscacerts")
-	err = os.Mkdir(tlsCaCertsPath, os.ModePerm)
+	err = os.Mkdir(tlsCaCertsPath, 0750)
 	if err != nil {
 		return nil, err
 	}
 	caCertsPath := path.Join(mspDir, "cacerts")
-	err = os.Mkdir(caCertsPath, os.ModePerm)
+	err = os.Mkdir(caCertsPath, 0750)
 	if err != nil {
 		return nil, err
 	}
-	err = ioutil.WriteFile(path.Join(caCertsPath, "cacert.pem"), rootCertPem, os.ModePerm)
+	err = os.WriteFile(path.Join(caCertsPath, "cacert.pem"), rootCertPem, 0600)
 	if err != nil {
 		return nil, err
 	}
-	err = ioutil.WriteFile(path.Join(tlsCaCertsPath, "tlscacert.pem"), serverTlsCertPem, os.ModePerm)
+	err = os.WriteFile(path.Join(tlsCaCertsPath, "tlscacert.pem"), serverTlsCertPem, 0600)
 	if err != nil {
 		return nil, err
 	}
@@ -179,7 +178,7 @@ NodeOUs:
     Certificate: cacerts/cacert.pem
     OrganizationalUnitIdentifier: orderer
 `
-	err = ioutil.WriteFile(path.Join(mspDir, "config.yaml"), []byte(configNodeOU), os.ModePerm)
+	err = os.WriteFile(path.Join(mspDir, "config.yaml"), []byte(configNodeOU), 0600)
 	if err != nil {
 		return nil, err
 	}
@@ -350,20 +349,20 @@ func GetProfileConfig(
 		for _, node := range org.Nodes {
 			clientTlsCertPem := []byte(node.TLSCert)
 			serverTlsCertPem := []byte(node.TLSCert)
-			clientCertFile, err := ioutil.TempFile("", "clientcert")
+			clientCertFile, err := os.CreateTemp("", "clientcert")
 			if err != nil {
 				return nil, err
 			}
-			err = ioutil.WriteFile(clientCertFile.Name(), clientTlsCertPem, 644)
+			err = os.WriteFile(clientCertFile.Name(), clientTlsCertPem, 0600)
 			if err != nil {
 				return nil, err
 			}
 
-			serverCertFile, err := ioutil.TempFile("", "servercert")
+			serverCertFile, err := os.CreateTemp("", "servercert")
 			if err != nil {
 				return nil, err
 			}
-			err = ioutil.WriteFile(serverCertFile.Name(), serverTlsCertPem, 644)
+			err = os.WriteFile(serverCertFile.Name(), serverTlsCertPem, 0600)
 			if err != nil {
 				return nil, err
 			}
@@ -378,25 +377,25 @@ func GetProfileConfig(
 
 			ordererAddresses = append(ordererAddresses, fmt.Sprintf("%s:%d", ordererHost, ordererPort))
 		}
-		ordererOrgMspDir, err := ioutil.TempDir("", fmt.Sprintf("mspdir_%s", org.MspID))
+		ordererOrgMspDir, err := os.MkdirTemp("", fmt.Sprintf("mspdir_%s", org.MspID))
 		if err != nil {
 			return nil, err
 		}
 		tlsCaCertsPath := path.Join(ordererOrgMspDir, "tlscacerts")
-		err = os.Mkdir(tlsCaCertsPath, os.ModePerm)
+		err = os.Mkdir(tlsCaCertsPath, 0750)
 		if err != nil {
 			return nil, err
 		}
 		caCertsPath := path.Join(ordererOrgMspDir, "cacerts")
-		err = os.Mkdir(caCertsPath, os.ModePerm)
+		err = os.Mkdir(caCertsPath, 0750)
 		if err != nil {
 			return nil, err
 		}
-		err = ioutil.WriteFile(path.Join(caCertsPath, "cacert.pem"), serverRootSignCertPem, os.ModePerm)
+		err = os.WriteFile(path.Join(caCertsPath, "cacert.pem"), serverRootSignCertPem, 0600)
 		if err != nil {
 			return nil, err
 		}
-		err = ioutil.WriteFile(path.Join(tlsCaCertsPath, "tlscacert.pem"), serverRootTlsCertPem, os.ModePerm)
+		err = os.WriteFile(path.Join(tlsCaCertsPath, "tlscacert.pem"), serverRootTlsCertPem, 0600)
 		if err != nil {
 			return nil, err
 		}
@@ -416,7 +415,7 @@ NodeOUs:
     Certificate: cacerts/cacert.pem
     OrganizationalUnitIdentifier: orderer
 `
-		err = ioutil.WriteFile(path.Join(ordererOrgMspDir, "config.yaml"), []byte(configNodeOU), os.ModePerm)
+		err = os.WriteFile(path.Join(ordererOrgMspDir, "config.yaml"), []byte(configNodeOU), 0600)
 		if err != nil {
 			return nil, err
 		}
@@ -583,20 +582,20 @@ func GetChannelProfileConfig(
 	for _, node := range ordService.Nodes {
 		clientTlsCertPem := []byte(node.TLSCert)
 		serverTlsCertPem := []byte(node.TLSCert)
-		clientCertFile, err := ioutil.TempFile("", "clientcert")
+		clientCertFile, err := os.CreateTemp("", "clientcert")
 		if err != nil {
 			return nil, err
 		}
-		err = ioutil.WriteFile(clientCertFile.Name(), clientTlsCertPem, 644)
+		err = os.WriteFile(clientCertFile.Name(), clientTlsCertPem, 0600)
 		if err != nil {
 			return nil, err
 		}
 
-		serverCertFile, err := ioutil.TempFile("", "servercert")
+		serverCertFile, err := os.CreateTemp("", "servercert")
 		if err != nil {
 			return nil, err
 		}
-		err = ioutil.WriteFile(serverCertFile.Name(), serverTlsCertPem, 644)
+		err = os.WriteFile(serverCertFile.Name(), serverTlsCertPem, 0600)
 		if err != nil {
 			return nil, err
 		}
@@ -611,28 +610,28 @@ func GetChannelProfileConfig(
 
 		ordererAddresses = append(ordererAddresses, fmt.Sprintf("%s:%d", ordererHost, ordererPort))
 	}
-	ordererOrgMspDir, err := ioutil.TempDir("", fmt.Sprintf("mspdir_%s", ordService.MspID))
+	ordererOrgMspDir, err := os.MkdirTemp("", fmt.Sprintf("mspdir_%s", ordService.MspID))
 	if err != nil {
 		return nil, err
 	}
 	tlsCaCertsPath := path.Join(ordererOrgMspDir, "tlscacerts")
-	err = os.Mkdir(tlsCaCertsPath, os.ModePerm)
+	err = os.Mkdir(tlsCaCertsPath, 0750)
 	if err != nil {
 		return nil, err
 	}
 	caCertsPath := path.Join(ordererOrgMspDir, "cacerts")
-	err = os.Mkdir(caCertsPath, os.ModePerm)
+	err = os.Mkdir(caCertsPath, 0750)
 	if err != nil {
 		return nil, err
 	}
 
 	serverRootCertPem := []byte(ordService.RootSignCert)
 	serverRootTlsCertPem := []byte(ordService.RootTLSCert)
-	err = ioutil.WriteFile(path.Join(caCertsPath, "cacert.pem"), serverRootCertPem, os.ModePerm)
+	err = os.WriteFile(path.Join(caCertsPath, "cacert.pem"), serverRootCertPem, 0600)
 	if err != nil {
 		return nil, err
 	}
-	err = ioutil.WriteFile(path.Join(tlsCaCertsPath, "tlscacert.pem"), serverRootTlsCertPem, os.ModePerm)
+	err = os.WriteFile(path.Join(tlsCaCertsPath, "tlscacert.pem"), serverRootTlsCertPem, 0600)
 	if err != nil {
 		return nil, err
 	}
@@ -652,7 +651,7 @@ NodeOUs:
     Certificate: cacerts/cacert.pem
     OrganizationalUnitIdentifier: orderer
 `
-	err = ioutil.WriteFile(path.Join(ordererOrgMspDir, "config.yaml"), []byte(configNodeOU), os.ModePerm)
+	err = os.WriteFile(path.Join(ordererOrgMspDir, "config.yaml"), []byte(configNodeOU), 0600)
 	if err != nil {
 		return nil, err
 	}

@@ -2,8 +2,8 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-ARG GO_VER=1.13.8
-ARG ALPINE_VER=3.10
+ARG GO_VER=1.21
+ARG ALPINE_VER=3.19
 
 FROM golang:${GO_VER}-alpine${ALPINE_VER}
 

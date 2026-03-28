@@ -3,18 +3,20 @@ package mainchannel
 import (
 	"context"
 	"fmt"
+	"io"
+	"io/ioutil"
+	"math"
+	"net"
+	"strconv"
+	"strings"
+
 	"github.com/kfsoftware/hlf-operator/controllers/utils"
 	"github.com/kfsoftware/hlf-operator/kubectl-hlf/cmd/helpers"
 	"github.com/kfsoftware/hlf-operator/pkg/apis/hlf.kungfusoftware.es/v1alpha1"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
-	"io"
-	"io/ioutil"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"net"
-	"strconv"
-	"strings"
 )
 
 type Options struct {
@@ -194,10 +196,10 @@ func (o Options) mapToFabricMainChannel() (*v1alpha1.FabricMainChannelSpec, erro
 			EtcdRaft: &v1alpha1.FabricMainChannelEtcdRaft{
 				Options: &v1alpha1.FabricMainChannelEtcdRaftOptions{
 					TickInterval:         o.EtcdRaftTickInterval,
-					ElectionTick:         uint32(o.EtcdRaftElectionTick),
-					HeartbeatTick:        uint32(o.EtcdRaftHeartbeatTick),
-					MaxInflightBlocks:    uint32(o.EtcdRaftMaxInflightBlocks),
-					SnapshotIntervalSize: uint32(o.EtcdRaftSnapshotIntervalSize),
+					ElectionTick:         safeUint32(o.EtcdRaftElectionTick),
+					HeartbeatTick:        safeUint32(o.EtcdRaftHeartbeatTick),
+					MaxInflightBlocks:    safeUint32(o.EtcdRaftMaxInflightBlocks),
+					SnapshotIntervalSize: safeUint32(o.EtcdRaftSnapshotIntervalSize),
 				},
 			},
 		},
@@ -357,4 +359,14 @@ func newCreateMainChannelCmd(out io.Writer, errOut io.Writer) *cobra.Command {
 
 	f.BoolVarP(&c.channelOpts.Output, "output", "o", false, "Output in yaml")
 	return cmd
+}
+
+func safeUint32(v int) uint32 {
+	if v < 0 {
+		return 0
+	}
+	if v > math.MaxUint32 {
+		return math.MaxUint32
+	}
+	return uint32(v) // #nosec G115 -- bounds checked above
 }

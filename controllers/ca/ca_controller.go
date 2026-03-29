@@ -722,6 +722,47 @@ func doesCertNeedsToBeRenewed(tlsCert *x509.Certificate, conf *hlfv1alpha1.Fabri
 
 	return false
 }
+
+// BuildIstioConfig builds the Istio chart config from the CRD spec,
+// applying defaults for empty values.
+func BuildIstioConfig(spec *hlfv1alpha1.FabricIstio) Istio {
+	istioPort := 443
+	if spec != nil && spec.Port != 0 {
+		istioPort = spec.Port
+	}
+	istioHosts := []string{}
+	if spec != nil && len(spec.Hosts) > 0 {
+		istioHosts = spec.Hosts
+	}
+	istioIngressGateway := "ingressgateway"
+	if spec != nil && spec.IngressGateway != "" {
+		istioIngressGateway = spec.IngressGateway
+	}
+	return Istio{
+		Port:           istioPort,
+		Hosts:          istioHosts,
+		IngressGateway: istioIngressGateway,
+	}
+}
+
+// BuildGatewayApiConfig builds the GatewayApi chart config from the CRD spec.
+func BuildGatewayApiConfig(spec *hlfv1alpha1.FabricGatewayApi) GatewayApi {
+	if spec == nil {
+		return GatewayApi{
+			Port:             443,
+			Hosts:            []string{},
+			GatewayName:      "",
+			GatewayNamespace: "",
+		}
+	}
+	return GatewayApi{
+		Port:             spec.Port,
+		Hosts:            spec.Hosts,
+		GatewayName:      spec.GatewayName,
+		GatewayNamespace: spec.GatewayNamespace,
+	}
+}
+
 func GetConfig(conf *hlfv1alpha1.FabricCA, client *kubernetes.Clientset, chartName string, namespace string) (*FabricCAChart, error) {
 	spec := conf.Spec
 	tlsCert, tlsKey, err := getExistingTLSCrypto(client, chartName, namespace)
@@ -822,24 +863,8 @@ func GetConfig(conf *hlfv1alpha1.FabricCA, client *kubernetes.Clientset, chartNa
 			Bytes: caTLSSignEncodedPK,
 		})
 	}
-	istioPort := 443
-	if spec.Istio != nil && spec.Istio.Port != 0 {
-		istioPort = spec.Istio.Port
-	}
-	istioHosts := []string{}
-	if spec.Istio != nil && len(spec.Istio.Hosts) > 0 {
-		istioHosts = spec.Istio.Hosts
-	}
-	gatewayApiHosts := []string{}
-	gatewayApiName := ""
-	gatewayApiNamespace := ""
-	gatewayApiPort := 443
-	if spec.GatewayApi != nil {
-		gatewayApiPort = spec.GatewayApi.Port
-		gatewayApiHosts = spec.GatewayApi.Hosts
-		gatewayApiName = spec.GatewayApi.GatewayName
-		gatewayApiNamespace = spec.GatewayApi.GatewayNamespace
-	}
+	istioConfig := BuildIstioConfig(spec.Istio)
+	gatewayApiConfig := BuildGatewayApiConfig(spec.GatewayApi)
 	msp := Msp{
 		CARef:          caRef,
 		TLSCARef:       caTLSSignRef,
@@ -905,17 +930,9 @@ func GetConfig(conf *hlfv1alpha1.FabricCA, client *kubernetes.Clientset, chartNa
 		ImagePullSecrets: spec.ImagePullSecrets,
 		EnvVars:          spec.Env,
 		FullNameOverride: conf.Name,
-		Istio: Istio{
-			Port:  istioPort,
-			Hosts: istioHosts,
-		},
-		GatewayApi: GatewayApi{
-			Port:             gatewayApiPort,
-			Hosts:            gatewayApiHosts,
-			GatewayName:      gatewayApiName,
-			GatewayNamespace: gatewayApiNamespace,
-		},
-		ServiceMonitor: serviceMonitor,
+		Istio:            istioConfig,
+		GatewayApi:       gatewayApiConfig,
+		ServiceMonitor:   serviceMonitor,
 		Image: Image{
 			Repository: spec.Image,
 			Tag:        spec.Version,

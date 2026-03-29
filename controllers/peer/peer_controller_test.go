@@ -216,3 +216,90 @@ func TestValidatePeer(t *testing.T) {
 		})
 	}
 }
+
+func TestBuildGatewayApiConfig(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    *hlfv1alpha1.FabricGatewayApi
+		expected peer.GatewayApi
+	}{
+		{
+			name:  "Nil spec returns empty defaults",
+			input: nil,
+			expected: peer.GatewayApi{
+				Port:             443,
+				Hosts:            []string{},
+				GatewayName:      "",
+				GatewayNamespace: "",
+			},
+		},
+		{
+			name: "Empty name and namespace get defaults",
+			input: &hlfv1alpha1.FabricGatewayApi{
+				Port:             443,
+				Hosts:            []string{"peer.example.com"},
+				GatewayName:      "",
+				GatewayNamespace: "",
+			},
+			expected: peer.GatewayApi{
+				Port:             443,
+				Hosts:            []string{"peer.example.com"},
+				GatewayName:      "hlf-gateway",
+				GatewayNamespace: "default",
+			},
+		},
+		{
+			name: "Custom values are preserved",
+			input: &hlfv1alpha1.FabricGatewayApi{
+				Port:             8443,
+				Hosts:            []string{"peer.example.com"},
+				GatewayName:      "my-gateway",
+				GatewayNamespace: "istio-system",
+			},
+			expected: peer.GatewayApi{
+				Port:             8443,
+				Hosts:            []string{"peer.example.com"},
+				GatewayName:      "my-gateway",
+				GatewayNamespace: "istio-system",
+			},
+		},
+		{
+			name: "Empty namespace gets default while name is preserved",
+			input: &hlfv1alpha1.FabricGatewayApi{
+				Port:             443,
+				Hosts:            []string{"peer.example.com"},
+				GatewayName:      "custom-gw",
+				GatewayNamespace: "",
+			},
+			expected: peer.GatewayApi{
+				Port:             443,
+				Hosts:            []string{"peer.example.com"},
+				GatewayName:      "custom-gw",
+				GatewayNamespace: "default",
+			},
+		},
+		{
+			name: "Empty name gets default while namespace is preserved",
+			input: &hlfv1alpha1.FabricGatewayApi{
+				Port:             443,
+				Hosts:            []string{"peer.example.com"},
+				GatewayName:      "",
+				GatewayNamespace: "my-ns",
+			},
+			expected: peer.GatewayApi{
+				Port:             443,
+				Hosts:            []string{"peer.example.com"},
+				GatewayName:      "hlf-gateway",
+				GatewayNamespace: "my-ns",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			result := peer.BuildGatewayApiConfig(tt.input)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}

@@ -241,3 +241,90 @@ func TestValidateOrdererNode(t *testing.T) {
 		})
 	}
 }
+
+func TestBuildGatewayApiConfig(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    *hlfv1alpha1.FabricGatewayApi
+		expected ordnode.GatewayApi
+	}{
+		{
+			name:  "Nil spec returns empty defaults",
+			input: nil,
+			expected: ordnode.GatewayApi{
+				Port:             443,
+				Hosts:            []string{},
+				GatewayName:      "",
+				GatewayNamespace: "",
+			},
+		},
+		{
+			name: "Empty name and namespace get defaults",
+			input: &hlfv1alpha1.FabricGatewayApi{
+				Port:             443,
+				Hosts:            []string{"orderer.example.com"},
+				GatewayName:      "",
+				GatewayNamespace: "",
+			},
+			expected: ordnode.GatewayApi{
+				Port:             443,
+				Hosts:            []string{"orderer.example.com"},
+				GatewayName:      "hlf-gateway",
+				GatewayNamespace: "default",
+			},
+		},
+		{
+			name: "Custom values are preserved",
+			input: &hlfv1alpha1.FabricGatewayApi{
+				Port:             8443,
+				Hosts:            []string{"orderer.example.com"},
+				GatewayName:      "my-gateway",
+				GatewayNamespace: "istio-system",
+			},
+			expected: ordnode.GatewayApi{
+				Port:             8443,
+				Hosts:            []string{"orderer.example.com"},
+				GatewayName:      "my-gateway",
+				GatewayNamespace: "istio-system",
+			},
+		},
+		{
+			name: "Empty namespace gets default while name is preserved",
+			input: &hlfv1alpha1.FabricGatewayApi{
+				Port:             443,
+				Hosts:            []string{"orderer.example.com"},
+				GatewayName:      "custom-gw",
+				GatewayNamespace: "",
+			},
+			expected: ordnode.GatewayApi{
+				Port:             443,
+				Hosts:            []string{"orderer.example.com"},
+				GatewayName:      "custom-gw",
+				GatewayNamespace: "default",
+			},
+		},
+		{
+			name: "Empty name gets default while namespace is preserved",
+			input: &hlfv1alpha1.FabricGatewayApi{
+				Port:             443,
+				Hosts:            []string{"orderer.example.com"},
+				GatewayName:      "",
+				GatewayNamespace: "my-ns",
+			},
+			expected: ordnode.GatewayApi{
+				Port:             443,
+				Hosts:            []string{"orderer.example.com"},
+				GatewayName:      "hlf-gateway",
+				GatewayNamespace: "my-ns",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			result := ordnode.BuildGatewayApiConfig(tt.input)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}

@@ -1070,6 +1070,33 @@ func getCertBytesFromCATLS(client *kubernetes.Clientset, caTls *hlfv1alpha1.Catl
 	}
 	return signCertBytes, nil
 }
+// BuildGatewayApiConfig builds the GatewayApi chart config from the CRD spec,
+// applying defaults for empty gateway name and namespace.
+func BuildGatewayApiConfig(spec *hlfv1alpha1.FabricGatewayApi) GatewayApi {
+	if spec == nil {
+		return GatewayApi{
+			Port:             443,
+			Hosts:            []string{},
+			GatewayName:      "",
+			GatewayNamespace: "",
+		}
+	}
+	gatewayApiName := spec.GatewayName
+	gatewayApiNamespace := spec.GatewayNamespace
+	if gatewayApiName == "" {
+		gatewayApiName = "hlf-gateway"
+	}
+	if gatewayApiNamespace == "" {
+		gatewayApiNamespace = "default"
+	}
+	return GatewayApi{
+		Port:             spec.Port,
+		Hosts:            spec.Hosts,
+		GatewayName:      gatewayApiName,
+		GatewayNamespace: gatewayApiNamespace,
+	}
+}
+
 func getConfig(
 	conf *hlfv1alpha1.FabricOrdererNode,
 	client *kubernetes.Clientset,
@@ -1281,30 +1308,7 @@ func getConfig(
 			IngressGateway: "",
 		}
 	}
-	var gatewayApi GatewayApi
-	if spec.GatewayApi != nil {
-		gatewayApiName := spec.GatewayApi.GatewayName
-		gatewayApiNamespace := spec.GatewayApi.GatewayNamespace
-		if gatewayApiName == "" {
-			gatewayApiName = "hlf-gateway"
-		}
-		if gatewayApiNamespace == "" {
-			gatewayApiName = "default"
-		}
-		gatewayApi = GatewayApi{
-			Port:             spec.GatewayApi.Port,
-			Hosts:            spec.GatewayApi.Hosts,
-			GatewayName:      gatewayApiName,
-			GatewayNamespace: gatewayApiNamespace,
-		}
-	} else {
-		gatewayApi = GatewayApi{
-			Port:             443,
-			Hosts:            []string{},
-			GatewayName:      "",
-			GatewayNamespace: "",
-		}
-	}
+	gatewayApi := BuildGatewayApiConfig(spec.GatewayApi)
 
 	traefik := Traefik{}
 	if spec.Traefik != nil {
@@ -1360,30 +1364,7 @@ func getConfig(
 			IngressGateway: "",
 		}
 	}
-	var adminGatewayApi GatewayApi
-	if spec.AdminGatewayApi != nil {
-		gatewayApiName := spec.AdminGatewayApi.GatewayName
-		gatewayApiNamespace := spec.GatewayApi.GatewayNamespace
-		if gatewayApiName == "" {
-			gatewayApiName = "hlf-gateway"
-		}
-		if gatewayApiNamespace == "" {
-			gatewayApiName = "default"
-		}
-		adminGatewayApi = GatewayApi{
-			Port:             spec.AdminGatewayApi.Port,
-			Hosts:            spec.AdminGatewayApi.Hosts,
-			GatewayName:      gatewayApiName,
-			GatewayNamespace: gatewayApiNamespace,
-		}
-	} else {
-		adminGatewayApi = GatewayApi{
-			Port:             443,
-			Hosts:            []string{},
-			GatewayName:      "",
-			GatewayNamespace: "",
-		}
-	}
+	adminGatewayApi := BuildGatewayApiConfig(spec.AdminGatewayApi)
 	var monitor ServiceMonitor
 	if spec.ServiceMonitor != nil && spec.ServiceMonitor.Enabled {
 		monitor = ServiceMonitor{

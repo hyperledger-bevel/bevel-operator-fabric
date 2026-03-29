@@ -100,3 +100,110 @@ func TestValidateVaultConfig(t *testing.T) {
 		})
 	}
 }
+
+func TestBuildIstioConfig(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    *hlfv1alpha1.FabricIstio
+		expected ca.Istio
+	}{
+		{
+			name:  "Nil spec returns defaults",
+			input: nil,
+			expected: ca.Istio{
+				Port:           443,
+				Hosts:          []string{},
+				IngressGateway: "ingressgateway",
+			},
+		},
+		{
+			name: "Custom IngressGateway is preserved",
+			input: &hlfv1alpha1.FabricIstio{
+				Port:           443,
+				Hosts:          []string{"ca.example.com"},
+				IngressGateway: "istio",
+			},
+			expected: ca.Istio{
+				Port:           443,
+				Hosts:          []string{"ca.example.com"},
+				IngressGateway: "istio",
+			},
+		},
+		{
+			name: "Empty IngressGateway gets default",
+			input: &hlfv1alpha1.FabricIstio{
+				Port:           8443,
+				Hosts:          []string{"ca.example.com"},
+				IngressGateway: "",
+			},
+			expected: ca.Istio{
+				Port:           8443,
+				Hosts:          []string{"ca.example.com"},
+				IngressGateway: "ingressgateway",
+			},
+		},
+		{
+			name: "Zero port gets default 443",
+			input: &hlfv1alpha1.FabricIstio{
+				Port:           0,
+				Hosts:          []string{},
+				IngressGateway: "my-gw",
+			},
+			expected: ca.Istio{
+				Port:           443,
+				Hosts:          []string{},
+				IngressGateway: "my-gw",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			result := ca.BuildIstioConfig(tt.input)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestBuildGatewayApiConfig(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    *hlfv1alpha1.FabricGatewayApi
+		expected ca.GatewayApi
+	}{
+		{
+			name:  "Nil spec returns empty defaults",
+			input: nil,
+			expected: ca.GatewayApi{
+				Port:             443,
+				Hosts:            []string{},
+				GatewayName:      "",
+				GatewayNamespace: "",
+			},
+		},
+		{
+			name: "Values are passed through",
+			input: &hlfv1alpha1.FabricGatewayApi{
+				Port:             8443,
+				Hosts:            []string{"ca.example.com"},
+				GatewayName:      "my-gw",
+				GatewayNamespace: "istio-system",
+			},
+			expected: ca.GatewayApi{
+				Port:             8443,
+				Hosts:            []string{"ca.example.com"},
+				GatewayName:      "my-gw",
+				GatewayNamespace: "istio-system",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			result := ca.BuildGatewayApiConfig(tt.input)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}

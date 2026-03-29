@@ -7,7 +7,7 @@ spec:
   parentRefs:
     - name: {{.Values.adminGatewayApi.gatewayName}}
       sectionName: tcp
-      namespace: {{.Values.gatewayApi.gatewayNamespace}}
+      namespace: {{.Values.adminGatewayApi.gatewayNamespace}}
   hostnames:
   {{- range .Values.adminGatewayApi.hosts }}
       - {{ . }}

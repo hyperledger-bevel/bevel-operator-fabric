@@ -2,6 +2,11 @@ package tests
 
 import (
 	"github.com/kfsoftware/hlf-operator/controllers/ca"
+	chaincodeapprove "github.com/kfsoftware/hlf-operator/controllers/chaincode/approve"
+	chaincodecommit "github.com/kfsoftware/hlf-operator/controllers/chaincode/commit"
+	chaincodeinstall "github.com/kfsoftware/hlf-operator/controllers/chaincode/install"
+	"github.com/kfsoftware/hlf-operator/controllers/followerchannel"
+	"github.com/kfsoftware/hlf-operator/controllers/mainchannel"
 	"github.com/kfsoftware/hlf-operator/controllers/ordnode"
 	"github.com/kfsoftware/hlf-operator/controllers/ordservice"
 	"github.com/kfsoftware/hlf-operator/controllers/peer"
@@ -123,6 +128,51 @@ var _ = BeforeSuite(func(done Done) {
 		Config:    RestConfig,
 	}
 	err = ordNodeReconciler.SetupWithManager(k8sManager, 10)
+	Expect(err).ToNot(HaveOccurred())
+
+	mainChannelReconciler := &mainchannel.FabricMainChannelReconciler{
+		Client: k8sManager.GetClient(),
+		Log:    ctrl.Log.WithName("controllers").WithName("FabricMainChannel"),
+		Scheme: k8sManager.GetScheme(),
+		Config: RestConfig,
+	}
+	err = mainChannelReconciler.SetupWithManager(k8sManager)
+	Expect(err).ToNot(HaveOccurred())
+
+	followerChannelReconciler := &followerchannel.FabricFollowerChannelReconciler{
+		Client: k8sManager.GetClient(),
+		Log:    ctrl.Log.WithName("controllers").WithName("FabricFollowerChannel"),
+		Scheme: k8sManager.GetScheme(),
+		Config: RestConfig,
+	}
+	err = followerChannelReconciler.SetupWithManager(k8sManager)
+	Expect(err).ToNot(HaveOccurred())
+
+	chaincodeInstallReconciler := &chaincodeinstall.FabricChaincodeInstallReconciler{
+		Client: k8sManager.GetClient(),
+		Log:    ctrl.Log.WithName("controllers").WithName("FabricChaincodeInstall"),
+		Scheme: k8sManager.GetScheme(),
+		Config: RestConfig,
+	}
+	err = chaincodeInstallReconciler.SetupWithManager(k8sManager)
+	Expect(err).ToNot(HaveOccurred())
+
+	chaincodeApproveReconciler := &chaincodeapprove.FabricChaincodeApproveReconciler{
+		Client: k8sManager.GetClient(),
+		Log:    ctrl.Log.WithName("controllers").WithName("FabricChaincodeApprove"),
+		Scheme: k8sManager.GetScheme(),
+		Config: RestConfig,
+	}
+	err = chaincodeApproveReconciler.SetupWithManager(k8sManager)
+	Expect(err).ToNot(HaveOccurred())
+
+	chaincodeCommitReconciler := &chaincodecommit.FabricChaincodeCommitReconciler{
+		Client: k8sManager.GetClient(),
+		Log:    ctrl.Log.WithName("controllers").WithName("FabricChaincodeCommit"),
+		Scheme: k8sManager.GetScheme(),
+		Config: RestConfig,
+	}
+	err = chaincodeCommitReconciler.SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())
 
 	go func() {

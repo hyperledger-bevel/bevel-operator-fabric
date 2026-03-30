@@ -6,14 +6,15 @@ import (
 	"github.com/kfsoftware/hlf-operator/controllers/ordservice"
 	"github.com/kfsoftware/hlf-operator/controllers/peer"
 	hlfv1alpha1 "github.com/kfsoftware/hlf-operator/pkg/apis/hlf.kungfusoftware.es/v1alpha1"
+	"testing"
+	"time"
+
 	ctrl "sigs.k8s.io/controller-runtime"
 	k8sconfig "sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
-	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
-	"testing"
-	"time"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	"context"
 	"fmt"

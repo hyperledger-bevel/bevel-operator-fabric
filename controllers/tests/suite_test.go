@@ -2,17 +2,24 @@ package tests
 
 import (
 	"github.com/kfsoftware/hlf-operator/controllers/ca"
+	chaincodeapprove "github.com/kfsoftware/hlf-operator/controllers/chaincode/approve"
+	chaincodecommit "github.com/kfsoftware/hlf-operator/controllers/chaincode/commit"
+	chaincodeinstall "github.com/kfsoftware/hlf-operator/controllers/chaincode/install"
+	"github.com/kfsoftware/hlf-operator/controllers/followerchannel"
+	"github.com/kfsoftware/hlf-operator/controllers/mainchannel"
 	"github.com/kfsoftware/hlf-operator/controllers/ordnode"
 	"github.com/kfsoftware/hlf-operator/controllers/ordservice"
 	"github.com/kfsoftware/hlf-operator/controllers/peer"
 	hlfv1alpha1 "github.com/kfsoftware/hlf-operator/pkg/apis/hlf.kungfusoftware.es/v1alpha1"
+	"testing"
+	"time"
+
 	ctrl "sigs.k8s.io/controller-runtime"
 	k8sconfig "sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
-	"testing"
-	"time"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	"context"
 	"fmt"
@@ -65,6 +72,9 @@ var _ = BeforeSuite(func(done Done) {
 		cfg,
 		ctrl.Options{
 			Scheme: scheme.Scheme,
+			Metrics: metricsserver.Options{
+				BindAddress: "0", // disable metrics server in tests
+			},
 		},
 	)
 	Expect(err).ToNot(HaveOccurred())
@@ -120,7 +130,53 @@ var _ = BeforeSuite(func(done Done) {
 	err = ordNodeReconciler.SetupWithManager(k8sManager, 10)
 	Expect(err).ToNot(HaveOccurred())
 
+	mainChannelReconciler := &mainchannel.FabricMainChannelReconciler{
+		Client: k8sManager.GetClient(),
+		Log:    ctrl.Log.WithName("controllers").WithName("FabricMainChannel"),
+		Scheme: k8sManager.GetScheme(),
+		Config: RestConfig,
+	}
+	err = mainChannelReconciler.SetupWithManager(k8sManager)
+	Expect(err).ToNot(HaveOccurred())
+
+	followerChannelReconciler := &followerchannel.FabricFollowerChannelReconciler{
+		Client: k8sManager.GetClient(),
+		Log:    ctrl.Log.WithName("controllers").WithName("FabricFollowerChannel"),
+		Scheme: k8sManager.GetScheme(),
+		Config: RestConfig,
+	}
+	err = followerChannelReconciler.SetupWithManager(k8sManager)
+	Expect(err).ToNot(HaveOccurred())
+
+	chaincodeInstallReconciler := &chaincodeinstall.FabricChaincodeInstallReconciler{
+		Client: k8sManager.GetClient(),
+		Log:    ctrl.Log.WithName("controllers").WithName("FabricChaincodeInstall"),
+		Scheme: k8sManager.GetScheme(),
+		Config: RestConfig,
+	}
+	err = chaincodeInstallReconciler.SetupWithManager(k8sManager)
+	Expect(err).ToNot(HaveOccurred())
+
+	chaincodeApproveReconciler := &chaincodeapprove.FabricChaincodeApproveReconciler{
+		Client: k8sManager.GetClient(),
+		Log:    ctrl.Log.WithName("controllers").WithName("FabricChaincodeApprove"),
+		Scheme: k8sManager.GetScheme(),
+		Config: RestConfig,
+	}
+	err = chaincodeApproveReconciler.SetupWithManager(k8sManager)
+	Expect(err).ToNot(HaveOccurred())
+
+	chaincodeCommitReconciler := &chaincodecommit.FabricChaincodeCommitReconciler{
+		Client: k8sManager.GetClient(),
+		Log:    ctrl.Log.WithName("controllers").WithName("FabricChaincodeCommit"),
+		Scheme: k8sManager.GetScheme(),
+		Config: RestConfig,
+	}
+	err = chaincodeCommitReconciler.SetupWithManager(k8sManager)
+	Expect(err).ToNot(HaveOccurred())
+
 	go func() {
+		defer GinkgoRecover()
 		err = k8sManager.Start(ctrl.SetupSignalHandler())
 		Expect(err).ToNot(HaveOccurred())
 	}()

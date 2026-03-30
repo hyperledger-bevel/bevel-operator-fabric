@@ -234,6 +234,16 @@ func (r *FabricMainChannelReconciler) validateAndSetup(ctx context.Context, req 
 }
 
 func (r *FabricMainChannelReconciler) validateMainChannelConfig(channel *hlfv1alpha1.FabricMainChannel) error {
+	v := &ConfigValidator{}
+	return v.ValidateMainChannel(channel)
+}
+
+// ConfigValidator validates FabricMainChannel configuration.
+type ConfigValidator struct{}
+
+// ValidateMainChannel checks the FabricMainChannel spec for required fields
+// and cross-field consistency.
+func (v *ConfigValidator) ValidateMainChannel(channel *hlfv1alpha1.FabricMainChannel) error {
 	if channel.Spec.Name == "" {
 		return errors.Wrap(ErrInvalidConfig, "channel name cannot be empty")
 	}

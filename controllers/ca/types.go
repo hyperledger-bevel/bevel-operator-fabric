@@ -51,8 +51,9 @@ type Traefik struct {
 	Hosts       []string            `json:"hosts"`
 }
 type Istio struct {
-	Port  int      `json:"port"`
-	Hosts []string `json:"hosts"`
+	Port           int      `json:"port"`
+	Hosts          []string `json:"hosts"`
+	IngressGateway string   `json:"ingressGateway"`
 }
 type GatewayApi struct {
 	Port             int      `json:"port"`

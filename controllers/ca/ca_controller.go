@@ -830,6 +830,10 @@ func GetConfig(conf *hlfv1alpha1.FabricCA, client *kubernetes.Clientset, chartNa
 	if spec.Istio != nil && len(spec.Istio.Hosts) > 0 {
 		istioHosts = spec.Istio.Hosts
 	}
+	istioIngressGateway := "ingressgateway"
+	if spec.Istio != nil && spec.Istio.IngressGateway != "" {
+		istioIngressGateway = spec.Istio.IngressGateway
+	}
 	gatewayApiHosts := []string{}
 	gatewayApiName := ""
 	gatewayApiNamespace := ""
@@ -906,8 +910,9 @@ func GetConfig(conf *hlfv1alpha1.FabricCA, client *kubernetes.Clientset, chartNa
 		EnvVars:          spec.Env,
 		FullNameOverride: conf.Name,
 		Istio: Istio{
-			Port:  istioPort,
-			Hosts: istioHosts,
+			Port:           istioPort,
+			Hosts:          istioHosts,
+			IngressGateway: istioIngressGateway,
 		},
 		GatewayApi: GatewayApi{
 			Port:             gatewayApiPort,

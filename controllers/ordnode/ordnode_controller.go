@@ -1289,7 +1289,7 @@ func getConfig(
 			gatewayApiName = "hlf-gateway"
 		}
 		if gatewayApiNamespace == "" {
-			gatewayApiName = "default"
+			gatewayApiNamespace = "default"
 		}
 		gatewayApi = GatewayApi{
 			Port:             spec.GatewayApi.Port,
@@ -1363,12 +1363,12 @@ func getConfig(
 	var adminGatewayApi GatewayApi
 	if spec.AdminGatewayApi != nil {
 		gatewayApiName := spec.AdminGatewayApi.GatewayName
-		gatewayApiNamespace := spec.GatewayApi.GatewayNamespace
+		gatewayApiNamespace := spec.AdminGatewayApi.GatewayNamespace
 		if gatewayApiName == "" {
 			gatewayApiName = "hlf-gateway"
 		}
 		if gatewayApiNamespace == "" {
-			gatewayApiName = "default"
+			gatewayApiNamespace = "default"
 		}
 		adminGatewayApi = GatewayApi{
 			Port:             spec.AdminGatewayApi.Port,

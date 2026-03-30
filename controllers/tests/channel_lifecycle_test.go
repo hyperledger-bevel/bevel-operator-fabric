@@ -10,6 +10,7 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	log "github.com/sirupsen/logrus"
+	"gopkg.in/yaml.v3"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -96,17 +97,35 @@ var _ = Describe("Channel Lifecycle", func() {
 		Expect(err).ToNot(HaveOccurred())
 
 		// Create a Kubernetes secret with the admin identity
-		adminSecretName := "channel-admin-identity"
-		adminSecretData := map[string][]byte{
-			"cert": []byte(adminCertPem),
-			"key":  adminKeyPem,
+		// The mainchannel controller expects YAML-encoded identity struct:
+		//   cert:
+		//     pem: <PEM cert>
+		//   key:
+		//     pem: <PEM key>
+		type pemStruct struct {
+			Pem string `yaml:"pem"`
 		}
+		type identityStruct struct {
+			Cert pemStruct `yaml:"cert"`
+			Key  pemStruct `yaml:"key"`
+		}
+		adminIdentity := identityStruct{
+			Cert: pemStruct{Pem: adminCertPem},
+			Key:  pemStruct{Pem: string(adminKeyPem)},
+		}
+		adminIdentityYAML, err := yaml.Marshal(adminIdentity)
+		Expect(err).ToNot(HaveOccurred())
+
+		adminSecretName := "channel-admin-identity"
+		adminSecretKey := "user.yaml"
 		adminSecret := &corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      adminSecretName,
 				Namespace: FabricNamespace,
 			},
-			Data: adminSecretData,
+			Data: map[string][]byte{
+				adminSecretKey: adminIdentityYAML,
+			},
 		}
 		Expect(K8sClient.Create(ctx, adminSecret)).Should(Succeed())
 
@@ -149,18 +168,24 @@ var _ = Describe("Channel Lifecycle", func() {
 		peerAdminKeyPem, err := utils.EncodePrivateKey(peerAdminPK)
 		Expect(err).ToNot(HaveOccurred())
 
-		// Create a Kubernetes secret for the peer admin identity
-		peerAdminSecretName := "peer-admin-identity"
-		peerAdminSecretData := map[string][]byte{
-			"cert": []byte(peerAdminCertPem),
-			"key":  peerAdminKeyPem,
+		// Create a Kubernetes secret for the peer admin identity (same YAML format)
+		peerAdminIdentity := identityStruct{
+			Cert: pemStruct{Pem: peerAdminCertPem},
+			Key:  pemStruct{Pem: string(peerAdminKeyPem)},
 		}
+		peerAdminIdentityYAML, err := yaml.Marshal(peerAdminIdentity)
+		Expect(err).ToNot(HaveOccurred())
+
+		peerAdminSecretName := "peer-admin-identity"
+		peerAdminSecretKey := "user.yaml"
 		peerAdminSecret := &corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      peerAdminSecretName,
 				Namespace: FabricNamespace,
 			},
-			Data: peerAdminSecretData,
+			Data: map[string][]byte{
+				peerAdminSecretKey: peerAdminIdentityYAML,
+			},
 		}
 		Expect(K8sClient.Create(ctx, peerAdminSecret)).Should(Succeed())
 
@@ -246,7 +271,7 @@ var _ = Describe("Channel Lifecycle", func() {
 					ordererMSPID: {
 						SecretNamespace: FabricNamespace,
 						SecretName:      adminSecretName,
-						SecretKey:       "cert",
+						SecretKey:       adminSecretKey,
 					},
 				},
 				AdminPeerOrganizations: []hlfv1alpha1.FabricMainChannelAdminPeerOrganizationSpec{
@@ -363,7 +388,7 @@ var _ = Describe("Channel Lifecycle", func() {
 				HLFIdentity: hlfv1alpha1.HLFIdentity{
 					SecretName:      peerAdminSecretName,
 					SecretNamespace: FabricNamespace,
-					SecretKey:       "cert",
+					SecretKey:       peerAdminSecretKey,
 				},
 			},
 		}

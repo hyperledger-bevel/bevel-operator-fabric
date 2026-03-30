@@ -7,20 +7,20 @@ title: Getting started
 
 ## Features
 
-- [x] Create certificates authorities (CA)
+- [x] Create certificate authorities (CA)
 - [x] Create peers
 - [x] Create ordering services
 - [x] Create resources without manual provisioning of cryptographic material
 - [x] Domain routing with SNI using Istio
-- [x] Run chaincode as external chaincode in Kubernetes
+- [x] Run chaincode as an external chaincode in Kubernetes
 - [x] Support Hyperledger Fabric 2.3+ and 3.0
 - [x] Managed genesis for Ordering services
-- [x] E2E testing including the execution of chaincodes in KIND
+- [x] E2E testing, including the execution of chaincodes in KIND
 - [x] Renewal of certificates
 
 ## Stay Up-to-Date
 
-`hlf-operator` is currently in stable. Watch **releases** of this repository to be notified for future updates:
+`hlf-operator` is currently in stable. Watch **releases** of this repository to be notified of future updates:
 
 ![hlf-operator-star-github](https://user-images.githubusercontent.com/6862893/123808402-022aa800-d8f1-11eb-8df4-8a9552f126a2.gif)
 
@@ -43,11 +43,11 @@ You can watch this video to see how to use it to deploy your own network:
 
 ## Tutorial Videos
 
-Step-by-step video tutorials to setup hlf-operator in Kubernetes
+Step-by-step video tutorials to set up hlf-operator in Kubernetes
 
 [![Hyperledger Fabric on Kubernetes](https://img.youtube.com/vi/e04TcJHUI5M/0.jpg)](https://www.youtube.com/playlist?list=PLuAZTZDgj0csRQuNMY8wbYqOCpzggAuMo "Hyperledger Fabric on Kubernetes")
 
-This workshop provides an in-depth hands on discussion and demonstration of using Bevel and the new Bevel-Operator-Fabric to deploy Hyperledger Fabric on Kubernetes.
+This workshop provides an in-depth, hands-on discussion and demonstration of using Bevel and the new Bevel-Operator-Fabric to deploy Hyperledger Fabric on Kubernetes.
 
 
 ## Hyperledger Workshops
@@ -72,13 +72,13 @@ Resources:
 
 ## Create Kubernetes Cluster
 
-To start deploying our red fabric we have to have a Kubernetes cluster. For this we will use KinD.
+To start deploying our red fabric, we have to have a Kubernetes cluster. For this, we will use KinD.
 
 Ensure you have these ports available before creating the cluster:
 - 80
 - 443
 
-If these ports are not available this tutorial will not work.
+If these ports are not available, this tutorial will not work.
 
 ### Using K3D
 
@@ -108,12 +108,12 @@ kind create cluster --config=./kind-config.yaml
 
 ## Install Kubernetes operator
 
-In this step we are going to install the kubernetes operator for Fabric, this will install:
+In this step, we are going to install the Kubernetes operator for Fabric. This will install:
 
-- CRD (Custom Resource Definitions) to deploy Certification Fabric Peers, Orderers and Authorities
+- CRD (Custom Resource Definitions) to deploy Certification Fabric Peers, Orderers, and Authorities
 - Deploy the program to deploy the nodes in Kubernetes
 
-To install helm: [https://helm.sh/docs/intro/install/](https://helm.sh/docs/intro/install/)
+To install Helm: [https://helm.sh/docs/intro/install/](https://helm.sh/docs/intro/install/)
 
 ```bash
 helm repo add kfs https://kfsoftware.github.io/hlf-helm-charts --force-update
@@ -127,7 +127,7 @@ helm install hlf-operator --version=1.13.0 -- kfs/hlf-operator
 To install the kubectl plugin, you must first install Krew:
 [https://krew.sigs.k8s.io/docs/user-guide/setup/install/](https://krew.sigs.k8s.io/docs/user-guide/setup/install/)
 
-Afterwards, the plugin can be installed with the following command:
+Afterward, the plugin can be installed with the following command:
 
 ```bash
 kubectl krew install hlf
@@ -321,7 +321,7 @@ openssl s_client -connect peer0-org1.localho.st:443
 
 ## Deploy an `Orderer` organization
 
-To deploy an `Orderer` organization we have to:
+To deploy an `Orderer` organization, we have to:
 
 1. Create a certification authority
 2. Register user `orderer` with password `ordererpw`
@@ -399,9 +399,9 @@ openssl s_client -connect orderer3-ord.localho.st:443
 
 ## Create channel
 
-To create the channel we need to first create the wallet secret, which will contain the identities used by the operator to manage the channel
+To create the channel, we need to first create the wallet secret, which will contain the identities used by the operator to manage the channel
 
-### Register and enrolling OrdererMSP identity
+### Register and enroll OrdererMSP identity
 
 ```bash
 # register
@@ -434,13 +434,9 @@ kubectl hlf ca enroll --name=org1-ca --namespace=default \
 ```
 
 
-### Register and enrolling Org1MSP identity
+### Enrolling Org1MSP identity
 
 ```bash
-# register
-kubectl hlf ca register --name=org1-ca --namespace=default --user=admin --secret=adminpw \
-    --type=admin --enroll-id enroll --enroll-secret=enrollpw --mspid=Org1MSP
-
 # enroll
 kubectl hlf ca enroll --name=org1-ca --namespace=default \
     --user=admin --secret=adminpw --mspid Org1MSP \
@@ -623,31 +619,25 @@ EOF
 
 To prepare the connection string, we have to:
 
-1. Get connection string without users for organization Org1MSP and OrdererMSP
-2. Register a user in the certification authority for signing (register)
-3. Obtain the certificates using the previously created user (enroll)
-4. Attach the user to the connection string
+0. Register a user in the certification authority for signing (already registered)
+1. Get the connection string without users for the organization Org1MSP and OrdererMSP
+2. Obtain the certificates using the previously created user (enroll)
+3. Attach the user to the connection string
+   
+--------------------------------------------------------------------------------------
 
-1. Get connection string without users for organization Org1MSP and OrdererMSP
-
-
+1. Get the connection string without users for the organization Org1MSP and OrdererMSP
 ```bash
 kubectl hlf inspect --output org1.yaml -o Org1MSP -o OrdererMSP
 ```
 
-2. Register a user in the certification authority for signing
-```bash
-kubectl hlf ca register --name=org1-ca --user=admin --secret=adminpw --type=admin \
- --enroll-id enroll --enroll-secret=enrollpw --mspid Org1MSP  
-```
-
-3. Get the certificates using the user created above
+2. Get the certificates using the user created above
 ```bash
 kubectl hlf ca enroll --name=org1-ca --user=admin --secret=adminpw --mspid Org1MSP \
         --ca-name ca  --output peer-org1.yaml
 ```
 
-4. Attach the user to the connection string
+3. Attach the user to the connection string
 ```bash
 kubectl hlf utils adduser --userPath=peer-org1.yaml --config=org1.yaml --username=admin --mspid=Org1MSP
 ```
@@ -692,7 +682,7 @@ kubectl hlf chaincode install --path=./chaincode.tgz \
 
 
 ## Deploy chaincode container on cluster
-The following command will create or update the CRD based on the packageID, chaincode name, and docker image.
+The following command will create or update the CRD based on the packageID, chaincode name, and Docker image.
 
 ```bash
 kubectl hlf externalchaincode sync --image=kfsoftware/chaincode-external:latest \
@@ -748,13 +738,13 @@ kubectl hlf chaincode query --config=org1.yaml \
 
 At this point, you should have:
 
-- Ordering service with 1 nodes and a CA
+- Ordering service with 1 node and a CA
 - Peer organization with a peer and a CA
 - A channel **demo**
 - A chaincode install in peer0
 - A chaincode approved and committed
 
-If something went wrong or didn't work, please, open an issue.
+If something went wrong or didn't work, please open an issue.
 
 
 ## Cleanup the environment
@@ -772,7 +762,7 @@ kubectl delete fabricfollowerchannels --all-namespaces --all
 
 ### Chaincode installation/build error
 
-Chaincode installation/build can fail due to unsupported local kubertenes version such as [minikube](https://github.com/kubernetes/minikube).
+Chaincode installation/build can fail due to an unsupported local Kubernetes version, such as [minikube](https://github.com/kubernetes/minikube).
 
 ```shell
 $ kubectl hlf chaincode install --path=./fixtures/chaincodes/fabcar/go \
@@ -784,4 +774,4 @@ external builder failed: external builder failed to build: external builder 'my-
 exit status 1
 ```
 
-If your purpose is to test the hlf-operator please consider to switch to [kind](https://github.com/kubernetes-sigs/kind) that is tested and supported.
+If your purpose is to test the hlf-operator, please consider switching to [kind](https://github.com/kubernetes-sigs/kind), which is tested and supported.

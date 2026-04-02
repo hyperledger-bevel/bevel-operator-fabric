@@ -1,3 +1,23 @@
+// Package certs provides PKI operations using Fabric CA.
+//
+// Deprecated: This package is deprecated and will be removed in a future version.
+// Use the github.com/kfsoftware/hlf-operator/pkg/pki package instead.
+// The new PKI package provides a unified interface for both Fabric CA and HashiCorp Vault.
+//
+// Migration guide:
+//
+//	Old code:
+//	  crt, key, rootCrt, err := certs.EnrollUser(certs.EnrollUserRequest{...})
+//
+//	New code:
+//	  import "github.com/kfsoftware/hlf-operator/pkg/pki"
+//	  import _ "github.com/kfsoftware/hlf-operator/pkg/pki/fabricca"
+//
+//	  provider, _ := pki.NewProvider(&pki.ProviderConfig{
+//	      Type: pki.ProviderTypeFabricCA,
+//	      FabricCA: &pki.FabricCAConfig{...},
+//	  })
+//	  resp, err := provider.Enroll(ctx, pki.EnrollRequest{...})
 package certs
 
 import (

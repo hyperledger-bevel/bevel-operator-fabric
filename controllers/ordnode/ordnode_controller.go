@@ -43,6 +43,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+
+	// Register PKI providers
+	_ "github.com/kfsoftware/hlf-operator/pkg/pki/fabricca"
+	_ "github.com/kfsoftware/hlf-operator/pkg/pki/vault"
 )
 
 // FabricOrdererNodeReconciler reconciles a FabricOrdererNode object
@@ -1114,6 +1118,10 @@ func getConfig(
 	var tlsKey, adminKey, signKey *ecdsa.PrivateKey
 	var err error
 	ctx := context.Background()
+
+	// Create PKI helper for certificate operations
+	pki := newPKIHelper(client)
+
 	if tlsParams.External != nil {
 		secret, err := client.CoreV1().Secrets(tlsParams.External.SecretNamespace).Get(ctx, tlsParams.External.SecretName, v1.GetOptions{})
 		if err != nil {
@@ -1136,8 +1144,8 @@ func getConfig(
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to get existing tls crypto material")
 		}
-		tlsCert, tlsKey, tlsRootCert, err = ReenrollTLSCryptoMaterial(
-			client,
+		tlsCert, tlsKey, tlsRootCert, err = pki.ReenrollTLSCryptoMaterialV2(
+			ctx,
 			conf,
 			&tlsParams,
 			string(utils.EncodeX509Certificate(tlsCert)),
@@ -1151,8 +1159,8 @@ func getConfig(
 		tlsCert, tlsKey, tlsRootCert, err = getExistingTLSCrypto(client, chartName, namespace)
 		if err != nil {
 			log.Warnf("Failed to get existing tls crypto material for %s, will create new one", chartName)
-			tlsCert, tlsKey, tlsRootCert, err = CreateTLSCryptoMaterial(
-				client,
+			tlsCert, tlsKey, tlsRootCert, err = pki.CreateTLSCryptoMaterialV2(
+				ctx,
 				conf,
 				&tlsParams,
 			)
@@ -1166,8 +1174,8 @@ func getConfig(
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to get existing tls admin crypto material")
 		}
-		adminCert, adminKey, adminRootCert, adminClientRootCert, err = ReenrollTLSAdminCryptoMaterial(
-			client,
+		adminCert, adminKey, adminRootCert, adminClientRootCert, err = pki.ReenrollTLSAdminCryptoMaterialV2(
+			ctx,
 			conf,
 			&tlsParams,
 			string(utils.EncodeX509Certificate(adminCert)),
@@ -1180,8 +1188,8 @@ func getConfig(
 		adminCert, adminKey, adminRootCert, adminClientRootCert, err = getExistingTLSAdminCrypto(client, chartName, namespace)
 		if err != nil {
 			log.Warnf("Failed to get existing tls admin crypto material, creating new one")
-			adminCert, adminKey, adminRootCert, adminClientRootCert, err = CreateTLSAdminCryptoMaterial(
-				client,
+			adminCert, adminKey, adminRootCert, adminClientRootCert, err = pki.CreateTLSAdminCryptoMaterialV2(
+				ctx,
 				conf,
 				&tlsParams,
 			)
@@ -1214,8 +1222,8 @@ func getConfig(
 			return nil, errors.Wrapf(err, "failed to get existing sign crypto material")
 		}
 		signCertPem := utils.EncodeX509Certificate(signCert)
-		signCert, signKey, signRootCert, err = ReenrollSignCryptoMaterial(
-			client,
+		signCert, signKey, signRootCert, err = pki.ReenrollSignCryptoMaterialV2(
+			ctx,
 			conf,
 			&signParams,
 			string(signCertPem),
@@ -1230,8 +1238,8 @@ func getConfig(
 		if err != nil {
 			log.Warnf("Failed to get existing sign crypto material: %s", err)
 
-			signCert, signKey, signRootCert, err = CreateSignCryptoMaterial(
-				client,
+			signCert, signKey, signRootCert, err = pki.CreateSignCryptoMaterialV2(
+				ctx,
 				conf,
 				&signParams,
 			)

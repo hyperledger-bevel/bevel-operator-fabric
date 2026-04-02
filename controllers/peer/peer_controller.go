@@ -50,6 +50,10 @@ import (
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	// Register PKI providers
+	_ "github.com/kfsoftware/hlf-operator/pkg/pki/fabricca"
+	_ "github.com/kfsoftware/hlf-operator/pkg/pki/vault"
 )
 
 // FabricPeerReconciler reconciles a FabricPeer object
@@ -1351,6 +1355,10 @@ func GetConfig(
 	var tlsKey, tlsOpsKey, signKey *ecdsa.PrivateKey
 	var err error
 	ctx := context.Background()
+
+	// Create PKI helper for certificate operations
+	pki := newPKIHelper(client)
+
 	if tlsParams.External != nil {
 		secret, err := client.CoreV1().Secrets(tlsParams.External.SecretNamespace).Get(ctx, tlsParams.External.SecretName, v1.GetOptions{})
 		if err != nil {
@@ -1375,8 +1383,8 @@ func GetConfig(
 		}
 		if tlsCert.NotAfter.Before(time.Now()) {
 			log.Infof("Enrolling tls crypto material for %s", chartName)
-			tlsCert, tlsKey, tlsRootCert, err = CreateTLSCryptoMaterial(
-				client,
+			tlsCert, tlsKey, tlsRootCert, err = pki.CreateTLSCryptoMaterialV2(
+				ctx,
 				conf,
 				&conf.Spec.Secret.Enrollment.TLS,
 			)
@@ -1386,9 +1394,9 @@ func GetConfig(
 			log.Infof("Successfully enrolled tls crypto material for %s", chartName)
 		} else {
 			if renewCertificatesReenroll {
-				tlsCert, tlsKey, tlsRootCert, err = ReenrollTLSCryptoMaterial(
+				tlsCert, tlsKey, tlsRootCert, err = pki.ReenrollTLSCryptoMaterialV2(
+					ctx,
 					conf,
-					client,
 					&tlsParams,
 					string(utils.EncodeX509Certificate(tlsCert)),
 					tlsKey,
@@ -1404,8 +1412,8 @@ func GetConfig(
 				if authenticationFailure {
 					log.Infof("Re enroll failed because of credentials, falling back to enroll")
 					// just enroll the user
-					tlsCert, tlsKey, tlsRootCert, err = CreateTLSCryptoMaterial(
-						client,
+					tlsCert, tlsKey, tlsRootCert, err = pki.CreateTLSCryptoMaterialV2(
+						ctx,
 						conf,
 						&tlsParams,
 					)
@@ -1416,8 +1424,8 @@ func GetConfig(
 				log.Infof("Successfully reenrolled tls crypto material for %s", chartName)
 			} else {
 				log.Infof("Enrolling new tls crypto material for %s (reenroll disabled)", chartName)
-				tlsCert, tlsKey, tlsRootCert, err = CreateTLSCryptoMaterial(
-					client,
+				tlsCert, tlsKey, tlsRootCert, err = pki.CreateTLSCryptoMaterialV2(
+					ctx,
 					conf,
 					&tlsParams,
 				)
@@ -1431,8 +1439,8 @@ func GetConfig(
 	} else {
 		tlsCert, tlsKey, tlsRootCert, err = getExistingTLSCrypto(client, chartName, namespace)
 		if err != nil {
-			tlsCert, tlsKey, tlsRootCert, err = CreateTLSCryptoMaterial(
-				client,
+			tlsCert, tlsKey, tlsRootCert, err = pki.CreateTLSCryptoMaterialV2(
+				ctx,
 				conf,
 				&tlsParams,
 			)
@@ -1442,8 +1450,8 @@ func GetConfig(
 		}
 	}
 	if refreshCerts {
-		tlsOpsCert, tlsOpsKey, _, err = CreateTLSOPSCryptoMaterial(
-			client,
+		tlsOpsCert, tlsOpsKey, _, err = pki.CreateTLSCryptoMaterialV2(
+			ctx,
 			conf,
 			&tlsParams,
 		)
@@ -1453,8 +1461,8 @@ func GetConfig(
 	} else {
 		tlsOpsCert, tlsOpsKey, _, err = getExistingTLSOPSCrypto(client, chartName, namespace)
 		if err != nil {
-			tlsOpsCert, tlsOpsKey, _, err = CreateTLSOPSCryptoMaterial(
-				client,
+			tlsOpsCert, tlsOpsKey, _, err = pki.CreateTLSCryptoMaterialV2(
+				ctx,
 				conf,
 				&tlsParams,
 			)
@@ -1489,8 +1497,8 @@ func GetConfig(
 		signCertPem := utils.EncodeX509Certificate(signCert)
 		if signCert.NotAfter.Before(time.Now()) {
 			log.Infof("Renewing certificates using enroll")
-			signCert, signKey, signRootCert, err = CreateSignCryptoMaterial(
-				client,
+			signCert, signKey, signRootCert, err = pki.CreateSignCryptoMaterialV2(
+				ctx,
 				conf,
 				&signParams,
 			)
@@ -1501,9 +1509,9 @@ func GetConfig(
 		} else {
 			if renewCertificatesReenroll {
 				log.Infof("Renewing certificates using reenroll")
-				signCert, signKey, signRootCert, err = ReenrollSignCryptoMaterial(
+				signCert, signKey, signRootCert, err = pki.ReenrollSignCryptoMaterialV2(
+					ctx,
 					conf,
-					client,
 					&signParams,
 					string(signCertPem),
 					signKey,
@@ -1519,8 +1527,8 @@ func GetConfig(
 				if authenticationFailure {
 					log.Infof("Re enroll failed because of credentials, falling back to enroll")
 					// just enroll the user
-					signCert, signKey, signRootCert, err = CreateSignCryptoMaterial(
-						client,
+					signCert, signKey, signRootCert, err = pki.CreateSignCryptoMaterialV2(
+						ctx,
 						conf,
 						&signParams,
 					)
@@ -1531,8 +1539,8 @@ func GetConfig(
 				log.Infof("Reenrolled sign crypto material")
 			} else {
 				log.Infof("Enrolling new sign crypto material (reenroll disabled)")
-				signCert, signKey, signRootCert, err = CreateSignCryptoMaterial(
-					client,
+				signCert, signKey, signRootCert, err = pki.CreateSignCryptoMaterialV2(
+					ctx,
 					conf,
 					&signParams,
 				)
@@ -1546,8 +1554,8 @@ func GetConfig(
 	} else {
 		signCert, signKey, signRootCert, err = getExistingSignCrypto(client, chartName, namespace)
 		if err != nil {
-			signCert, signKey, signRootCert, err = CreateSignCryptoMaterial(
-				client,
+			signCert, signKey, signRootCert, err = pki.CreateSignCryptoMaterialV2(
+				ctx,
 				conf,
 				&signParams,
 			)

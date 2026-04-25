@@ -83,6 +83,8 @@ spec:
             items:
               - key: 'orderer.yaml'
                 path: 'orderer.yaml'
+        - name: fabric-cfg
+          emptyDir: {}
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
       {{- toYaml . | nindent 8 }}
@@ -185,6 +187,8 @@ spec:
             - configMapRef:
                 name: {{ include "hlf-ordnode.fullname" . }}--ord
           volumeMounts:
+            - mountPath: /etc/hyperledger/fabric
+              name: fabric-cfg
             - mountPath: /var/hyperledger
               name: data
             - mountPath: /var/hyperledger/msp/signcerts

@@ -275,7 +275,7 @@ func (p *Provider) Reenroll(ctx context.Context, req pki.ReenrollRequest) (*pki.
 
 // Register is not supported by Vault PKI
 func (p *Provider) Register(ctx context.Context, req pki.RegisterRequest) (*pki.RegisterResponse, error) {
-	return nil, errors.New("identity registration is not supported by Vault PKI provider")
+	return nil, pki.ErrNotSupported
 }
 
 // Revoke revokes a certificate using Vault PKI
@@ -419,7 +419,9 @@ func createVaultClient(config *pki.VaultConfig, clientSet kubernetes.Interface) 
 			return nil, fmt.Errorf("key %s not found in token secret", config.Auth.TokenSecretRef.Key)
 		}
 
-		client.SetToken(string(tokenBytes))
+		if err := client.SetToken(string(tokenBytes)); err != nil {
+			return nil, errors.Wrap(err, "failed to set Vault token")
+		}
 	} else if config.Auth.KubernetesAuth != nil {
 		// TODO: Implement Kubernetes auth method
 		return nil, errors.New("Kubernetes auth method not yet implemented")

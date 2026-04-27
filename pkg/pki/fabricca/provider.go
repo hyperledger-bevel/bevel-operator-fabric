@@ -3,7 +3,7 @@ package fabricca
 import (
 	"context"
 	"crypto/ecdsa"
-	"io/ioutil"
+	"os"
 	"path/filepath"
 
 	"github.com/hyperledger/fabric/bccsp"
@@ -281,7 +281,7 @@ func (p *Provider) GetCAInfo(ctx context.Context) (*pki.CAInfo, error) {
 
 // createClient creates a Fabric CA client
 func createClient(config *pki.FabricCAConfig) (*lib.Client, error) {
-	caHomeDir, err := ioutil.TempDir("", "fabric-ca-client")
+	caHomeDir, err := os.MkdirTemp("", "fabric-ca-client")
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create temp directory")
 	}
@@ -295,7 +295,7 @@ func createClient(config *pki.FabricCAConfig) (*lib.Client, error) {
 
 	// Configure TLS if certificate is provided
 	if config.TLSCert != "" {
-		caCertFile, err := ioutil.TempFile("", "ca-cert")
+		caCertFile, err := os.CreateTemp("", "ca-cert")
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to create temp file for CA cert")
 		}
@@ -324,7 +324,7 @@ func createClient(config *pki.FabricCAConfig) (*lib.Client, error) {
 // readKey reads the private key from the client's keystore
 func (p *Provider) readKey() (*ecdsa.PrivateKey, error) {
 	keystoreDir := filepath.Join(p.client.HomeDir, "msp", "keystore")
-	files, err := ioutil.ReadDir(keystoreDir)
+	files, err := os.ReadDir(keystoreDir)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to read keystore directory")
 	}
@@ -337,7 +337,7 @@ func (p *Provider) readKey() (*ecdsa.PrivateKey, error) {
 	}
 
 	keyPath := filepath.Join(keystoreDir, files[0].Name())
-	keyBytes, err := ioutil.ReadFile(keyPath)
+	keyBytes, err := os.ReadFile(keyPath)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to read key file %s", keyPath)
 	}

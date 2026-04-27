@@ -1,0 +1,556 @@
+on:
+  push:
+  pull_request:
+
+name: PKI E2E – FabricCA (peer) + Vault (orderer)
+
+# Single cluster test:
+#   Peer org  → credential-store=kubernetes (FabricCA)
+#   Orderer org → credential-store=vault    (Vault PKI engine)
+#
+# Flow: provision → channel → chaincode → invoke → reenroll both → verify
+
+jobs:
+  mixed-pki:
+    name: Peer=FabricCA, Orderer=Vault
+    runs-on: ubuntu-latest
+    env:
+      IMAGE: hlf-operator
+      TAG: test
+      PEER_IMAGE: hyperledger/fabric-peer
+      PEER_VERSION: 2.5.10
+      ORDERER_IMAGE: hyperledger/fabric-orderer
+      ORDERER_VERSION: 2.5.10
+      CA_IMAGE: hyperledger/fabric-ca
+      CA_VERSION: 1.5.15
+      VAULT_ADDR: http://127.0.0.1:8200
+      VAULT_TOKEN: root
+
+    steps:
+      - name: Install Go
+        uses: actions/setup-go@v2
+        with:
+          go-version: "1.23.5"
+
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      # -----------------------------------------------------------------------
+      # Vault: start on the runner before Kind so PKI is ready when needed
+      # -----------------------------------------------------------------------
+      - name: Start Vault in dev mode
+        run: |
+          wget -q https://releases.hashicorp.com/vault/1.13.3/vault_1.13.3_linux_amd64.zip
+          unzip -q vault_1.13.3_linux_amd64.zip
+          sudo mv vault /usr/local/bin/vault
+          vault server -dev -dev-root-token-id=root -dev-listen-address=0.0.0.0:8200 &
+          sleep 3
+          vault status
+
+      - name: Configure Vault PKI engines for Orderer org
+        run: |
+          # ---------- Orderer sign PKI ----------
+          vault secrets enable -path=pki-ord pki
+          vault secrets tune -max-lease-ttl=87600h pki-ord
+          vault write pki-ord/root/generate/internal \
+            common_name="Orderer Sign CA" ttl=87600h
+          vault write pki-ord/config/urls \
+            issuing_certificates="${VAULT_ADDR}/v1/pki-ord/ca" \
+            crl_distribution_points="${VAULT_ADDR}/v1/pki-ord/crl"
+          vault write pki-ord/roles/orderer-sign \
+            allowed_domains="ord.example.com,orderer" \
+            allow_subdomains=true \
+            allow_any_name=true \
+            max_ttl=8760h
+
+          # ---------- Orderer TLS PKI ----------
+          vault secrets enable -path=pki-ord-tls pki
+          vault secrets tune -max-lease-ttl=87600h pki-ord-tls
+          vault write pki-ord-tls/root/generate/internal \
+            common_name="Orderer TLS CA" ttl=87600h
+          vault write pki-ord-tls/config/urls \
+            issuing_certificates="${VAULT_ADDR}/v1/pki-ord-tls/ca" \
+            crl_distribution_points="${VAULT_ADDR}/v1/pki-ord-tls/crl"
+          vault write pki-ord-tls/roles/orderer-tls \
+            allowed_domains="localho.st,ord.example.com" \
+            allow_subdomains=true \
+            allow_any_name=true \
+            allow_ip_sans=true \
+            max_ttl=8760h
+
+      # -----------------------------------------------------------------------
+      # Kind cluster + tooling
+      # -----------------------------------------------------------------------
+      - name: Create Kind cluster
+        uses: helm/kind-action@v1.4.0
+        with:
+          cluster_name: kind
+          node_image: kindest/node:v1.25.8
+          config: .github/kind-config.yaml
+
+      - name: Install kubectl-hlf plugin
+        run: |
+          cd kubectl-hlf
+          go build -o kubectl-hlf ./main.go
+          sudo mv kubectl-hlf /usr/local/bin/kubectl-hlf
+
+      - name: Install operator CRDs and deploy
+        run: |
+          go install sigs.k8s.io/controller-tools/cmd/controller-gen@v0.16.4
+          make generate manifests install
+          export GOOS=linux
+          export GOARCH=amd64
+          export CGO_ENABLED=0
+          go build -o hlf-operator ./main.go
+          docker build -t "${IMAGE}:${TAG}" .
+          kind load docker-image "${IMAGE}:${TAG}"
+          make deploy IMG="${IMAGE}:${TAG}"
+
+      - name: Install Istio
+        run: |
+          curl -L https://istio.io/downloadIstio | ISTIO_VERSION=1.23.2 TARGET_ARCH=x86_64 sh -
+          export PATH="$PATH:$PWD/istio-1.23.2/bin"
+          kubectl create namespace istio-system
+
+          istioctl operator init
+
+
+          kubectl apply -f - <<EOF
+            apiVersion: install.istio.io/v1alpha1
+            kind: IstioOperator
+            metadata:
+              name: istio-gateway
+              namespace: istio-system
+            spec:
+              addonComponents:
+                grafana:
+                  enabled: false
+                kiali:
+                  enabled: false
+                prometheus:
+                  enabled: false
+                tracing:
+                  enabled: false
+              components:
+                ingressGateways:
+                  - enabled: true
+                    k8s:
+                      hpaSpec:
+                        minReplicas: 1
+                      resources:
+                        limits:
+                          cpu: 500m
+                          memory: 512Mi
+                        requests:
+                          cpu: 100m
+                          memory: 128Mi
+                      service:
+                        ports:
+                          - name: http
+                            port: 80
+                            targetPort: 8080
+                            nodePort: 30949
+                          - name: https
+                            port: 443
+                            targetPort: 8443
+                            nodePort: 30950
+                        type: NodePort
+                    name: istio-ingressgateway
+                pilot:
+                  enabled: true
+                  k8s:
+                    hpaSpec:
+                      minReplicas: 1
+                    resources:
+                      limits:
+                        cpu: 300m
+                        memory: 512Mi
+                      requests:
+                        cpu: 100m
+                        memory: 128Mi
+              meshConfig:
+                accessLogFile: /dev/stdout
+                enableTracing: false
+                outboundTrafficPolicy:
+                  mode: ALLOW_ANY
+              profile: default
+
+          EOF
+
+          sleep 2
+
+          kubectl wait --timeout=240s --for=jsonpath='{.status.status}'=HEALTHY istiooperator istio-gateway --namespace=istio-system
+
+      - name: Configure DNS in Kubernetes
+        run: |
+          CLUSTER_IP=$(kubectl -n istio-system get svc istio-ingressgateway -o json | jq -r .spec.clusterIP)
+          echo "CLUSTER_IP=${CLUSTER_IP}"
+
+          kubectl apply -f - <<EOF
+          kind: ConfigMap
+          apiVersion: v1
+          metadata:
+            name: coredns
+            namespace: kube-system
+          data:
+            Corefile: |
+              .:53 {
+                  errors
+                  health {
+                     lameduck 5s
+                  }
+                  rewrite name regex (.*)\.localho\.st istio-ingressgateway.istio-system.svc.cluster.local
+                  hosts {
+                    fallthrough
+                  }
+                  ready
+                  kubernetes cluster.local in-addr.arpa ip6.arpa {
+                     pods insecure
+                     fallthrough in-addr.arpa ip6.arpa
+                     ttl 30
+                  }
+                  prometheus :9153
+                  forward . /etc/resolv.conf {
+                     max_concurrent 1000
+                  }
+                  cache 30
+                  loop
+                  reload
+                  loadbalance
+              }
+          EOF
+
+          kubectl get configmap coredns -n kube-system -o yaml
+
+      # Vault runs on the GH runner; pods inside Kind reach it via the docker
+      # bridge gateway IP.
+      - name: Expose Vault address to Kind pods
+        run: |
+          # Use the Kind node's internal IP — pods inside Kind reach the runner
+          # via the node IP, not the docker bridge gateway (which may be null).
+          VAULT_HOST_IP=$(kubectl get nodes kind-control-plane \
+            -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}')
+          echo "VAULT_HOST_IP=${VAULT_HOST_IP}"
+          echo "VAULT_K8S_ADDR=http://${VAULT_HOST_IP}:8200" >> $GITHUB_ENV
+
+          kubectl create secret generic vault-token \
+            --namespace=default \
+            --from-literal=token=root
+
+      # -----------------------------------------------------------------------
+      # Peer org — FabricCA (credential-store=kubernetes)
+      # -----------------------------------------------------------------------
+      - name: Create Peer org CA (FabricCA)
+        run: |
+          kubectl hlf ca create \
+            --credential-store=kubernetes \
+            --image=$CA_IMAGE --version=$CA_VERSION \
+            --storage-class=standard --capacity=2Gi \
+            --name=org1-ca \
+            --enroll-id=enroll --enroll-pw=enrollpw \
+            --hosts=org1-ca.localho.st
+          kubectl wait --timeout=240s --for=condition=Running fabriccas.hlf.kungfusoftware.es --all
+
+      - name: Register peer identity and create peer (FabricCA)
+        run: |
+          kubectl hlf ca register --name=org1-ca \
+            --user=peer --secret=peerpw --type=peer \
+            --enroll-id enroll --enroll-secret=enrollpw --mspid Org1MSP
+
+          kubectl hlf peer create \
+            --credential-store=kubernetes \
+            --statedb=couchdb \
+            --image=$PEER_IMAGE --version=$PEER_VERSION \
+            --storage-class=standard --enroll-id=peer --mspid=Org1MSP \
+            --enroll-pw=peerpw \
+            --hosts=peer0-org1.localho.st \
+            --capacity=5Gi --name=org1-peer0 \
+            --ca-name=org1-ca.default
+          kubectl wait --timeout=300s --for=condition=Running fabricpeers.hlf.kungfusoftware.es --all
+
+      # -----------------------------------------------------------------------
+      # Orderer org — Vault (credential-store=vault)
+      # FabricCA is still needed for orderer MSP bootstrap (admin enroll /
+      # channel config anchor), but the orderer node's TLS + sign certs come
+      # from Vault.
+      # -----------------------------------------------------------------------
+      - name: Create Orderer org CA (FabricCA — MSP bootstrap only)
+        run: |
+          kubectl hlf ca create \
+            --credential-store=kubernetes \
+            --image=$CA_IMAGE --version=$CA_VERSION \
+            --storage-class=standard --capacity=2Gi \
+            --name=ord-ca \
+            --enroll-id=enroll --enroll-pw=enrollpw \
+            --hosts=ord-ca.localho.st
+          kubectl wait --timeout=240s --for=condition=Running fabriccas.hlf.kungfusoftware.es --all
+
+      - name: Create orderer node (Vault credential store)
+        run: |
+          kubectl hlf ordnode create \
+            --credential-store=vault \
+            --image=$ORDERER_IMAGE --version=$ORDERER_VERSION \
+            --storage-class=standard \
+            --mspid=OrdererMSP \
+            --hosts=orderer0-ord.localho.st \
+            --admin-hosts=admin-orderer0-ord.localho.st \
+            --capacity=2Gi --name=ord-node1 \
+            --ca-name=ord-ca.default \
+            --vault-address="${VAULT_K8S_ADDR}" \
+            --vault-token-secret=vault-token \
+            --vault-token-secret-namespace=default \
+            --vault-token-secret-key=token \
+            --vault-pki-path=pki-ord \
+            --vault-role=orderer-sign \
+            --tls-vault-address="${VAULT_K8S_ADDR}" \
+            --tls-vault-token-secret=vault-token \
+            --tls-vault-token-secret-namespace=default \
+            --tls-vault-token-secret-key=token \
+            --tls-vault-pki-path=pki-ord-tls \
+            --tls-vault-role=orderer-tls
+          kubectl wait --timeout=300s --for=condition=Running fabricorderernodes.hlf.kungfusoftware.es --all
+
+      # -----------------------------------------------------------------------
+      # Channel setup
+      # -----------------------------------------------------------------------
+      - name: Prepare identities and create channel
+        run: |
+          kubectl hlf inspect --output ordservice.yaml -o OrdererMSP
+
+          # Orderer admin — enrolled from FabricCA (MSP identity for channel config)
+          kubectl hlf ca register --name=ord-ca --user=admin --secret=adminpw \
+            --type=admin --enroll-id enroll --enroll-secret=enrollpw --mspid=OrdererMSP
+          kubectl hlf ca enroll --name=ord-ca --user=admin --secret=adminpw \
+            --mspid OrdererMSP --ca-name ca --output admin-ordservice.yaml
+          kubectl hlf utils adduser --userPath=admin-ordservice.yaml \
+            --config=ordservice.yaml --username=admin --mspid=OrdererMSP
+
+          kubectl hlf ca enroll --name=ord-ca --namespace=default \
+            --user=admin --secret=adminpw --mspid OrdererMSP \
+            --ca-name tlsca --output admin-tls-ordservice.yaml
+          kubectl hlf ca enroll --name=ord-ca --namespace=default \
+            --user=admin --secret=adminpw --mspid OrdererMSP \
+            --ca-name ca --output admin-sign-ordservice.yaml
+
+          # Peer admin — enrolled from FabricCA
+          kubectl hlf ca register --name=org1-ca --user=admin --secret=adminpw \
+            --type=admin --enroll-id enroll --enroll-secret=enrollpw --mspid Org1MSP
+          kubectl hlf ca enroll --name=org1-ca --user=admin --secret=adminpw \
+            --mspid Org1MSP --ca-name ca --output peer-org1.yaml
+          kubectl hlf inspect --output org1.yaml -o Org1MSP -o OrdererMSP
+          kubectl hlf utils adduser --userPath=peer-org1.yaml \
+            --config=org1.yaml --username=admin --mspid=Org1MSP
+
+          kubectl create secret generic wallet --namespace=default \
+            --from-file=peer-org1.yaml=$PWD/peer-org1.yaml \
+            --from-file=admin-sign-ordservice.yaml=$PWD/admin-sign-ordservice.yaml \
+            --from-file=admin-tls-ordservice.yaml=$PWD/admin-tls-ordservice.yaml
+
+          export IDENT_8=$(printf "%8s" "")
+          export ORDERER0_TLS_CERT=$(kubectl get fabricorderernodes ord-node1 \
+            -o=jsonpath='{.status.tlsCert}' | sed -e "s/^/${IDENT_8}/")
+
+          kubectl apply -f - <<EOF
+          apiVersion: hlf.kungfusoftware.es/v1alpha1
+          kind: FabricMainChannel
+          metadata:
+            name: demo
+          spec:
+            name: demo
+            adminOrdererOrganizations:
+              - mspID: OrdererMSP
+            adminPeerOrganizations:
+              - mspID: Org1MSP
+            channelConfig:
+              application:
+                acls: null
+                capabilities:
+                  - V2_0
+                  - V2_5
+                policies: null
+              capabilities:
+                - V2_0
+              orderer:
+                batchSize:
+                  absoluteMaxBytes: 1048576
+                  maxMessageCount: 10
+                  preferredMaxBytes: 524288
+                batchTimeout: 2s
+                capabilities:
+                  - V2_0
+                etcdRaft:
+                  options:
+                    electionTick: 10
+                    heartbeatTick: 1
+                    maxInflightBlocks: 5
+                    snapshotIntervalSize: 16777216
+                    tickInterval: 500ms
+                ordererType: etcdraft
+                policies: null
+                state: STATE_NORMAL
+              policies: null
+            externalOrdererOrganizations: []
+            externalPeerOrganizations: []
+            peerOrganizations:
+              - mspID: Org1MSP
+                caName: "org1-ca"
+                caNamespace: "default"
+            identities:
+              OrdererMSP:
+                secretKey: admin-tls-ordservice.yaml
+                secretName: wallet
+                secretNamespace: default
+              OrdererMSP-tls:
+                secretKey: admin-tls-ordservice.yaml
+                secretName: wallet
+                secretNamespace: default
+              OrdererMSP-sign:
+                secretKey: admin-sign-ordservice.yaml
+                secretName: wallet
+                secretNamespace: default
+              Org1MSP:
+                secretKey: peer-org1.yaml
+                secretName: wallet
+                secretNamespace: default
+            ordererOrganizations:
+              - caName: "ord-ca"
+                caNamespace: "default"
+                externalOrderersToJoin: []
+                mspID: OrdererMSP
+                ordererEndpoints:
+                  - orderer0-ord.localho.st:443
+                orderersToJoin:
+                  - name: ord-node1
+                    namespace: default
+            orderers:
+              - host: orderer0-ord.localho.st
+                port: 443
+                tlsCert: |-
+          ${ORDERER0_TLS_CERT}
+          EOF
+
+          kubectl wait --timeout=240s --for=condition=RUNNING fabricmainchannels.hlf.kungfusoftware.es --all
+
+      - name: Join peer to channel
+        run: |
+          kubectl get fabricorderernodes ord-node1 -o jsonpath='{.status.tlsCert}' > ./orderer-cert.pem
+          kubectl hlf channelcrd follower create \
+            --channel-name=demo \
+            --mspid=Org1MSP \
+            --name="demo-org1msp" \
+            --orderer-certificates="./orderer-cert.pem" \
+            --orderer-urls="grpcs://orderer0-ord.localho.st:443" \
+            --anchor-peers="org1-peer0:7051" \
+            --peers="org1-peer0.default" \
+            --secret-name=wallet \
+            --secret-ns=default \
+            --secret-key="peer-org1.yaml"
+          kubectl wait --timeout=240s --for=condition=RUNNING fabricfollowerchannels.hlf.kungfusoftware.es --all
+
+      # -----------------------------------------------------------------------
+      # Chaincode
+      # -----------------------------------------------------------------------
+      - name: Install, approve, commit and test chaincode
+        run: |
+          export CHAINCODE_NAME=asset
+          export CHAINCODE_LABEL=asset
+          cat > metadata.json <<'EOF'
+          {"type": "ccaas", "label": "asset"}
+          EOF
+          cat > connection.json <<'EOF'
+          {"address": "asset:7052", "dial_timeout": "10s", "tls_required": false}
+          EOF
+          tar cfz code.tar.gz connection.json
+          tar cfz asset-transfer-basic-external.tgz metadata.json code.tar.gz
+
+          export PACKAGE_ID=$(kubectl hlf chaincode calculatepackageid \
+            --path=asset-transfer-basic-external.tgz --language=node --label=$CHAINCODE_LABEL)
+
+          kubectl hlf chaincode install --path=./asset-transfer-basic-external.tgz \
+            --config=org1.yaml --language=golang --label=$CHAINCODE_LABEL \
+            --user=admin --peer=org1-peer0.default
+
+          kubectl hlf externalchaincode sync \
+            --image=kfsoftware/chaincode-external:latest \
+            --name=$CHAINCODE_NAME \
+            --namespace=default \
+            --package-id=$PACKAGE_ID \
+            --tls-required=false \
+            --replicas=1
+
+          kubectl hlf chaincode approveformyorg \
+            --config=org1.yaml --user=admin --peer=org1-peer0.default \
+            --package-id=$PACKAGE_ID \
+            --version "1.0" --sequence 1 --name=asset \
+            --policy="OR('Org1MSP.member')" --channel=demo
+
+          kubectl hlf chaincode commit \
+            --config=org1.yaml --user=admin --mspid=Org1MSP \
+            --version "1.0" --sequence 1 --name=asset \
+            --policy="OR('Org1MSP.member')" --channel=demo
+
+          kubectl wait --timeout=240s --for=condition=Available deployment asset --namespace=default
+
+          kubectl hlf chaincode invoke --config=org1.yaml \
+            --user=admin --peer=org1-peer0.default \
+            --chaincode=asset --channel=demo \
+            --fcn=initLedger -a '[]'
+
+          kubectl hlf chaincode query --config=org1.yaml \
+            --user=admin --peer=org1-peer0.default \
+            --chaincode=asset --channel=demo \
+            --fcn=GetAllAssets -a '[]'
+
+      # -----------------------------------------------------------------------
+      # Reenroll: peer via FabricCA, orderer via Vault
+      # -----------------------------------------------------------------------
+      - name: Reenroll peer certificate (FabricCA)
+        run: |
+          kubectl hlf peer renew --name=org1-peer0 --namespace=default
+          kubectl wait --timeout=300s --for=condition=Running fabricpeers.hlf.kungfusoftware.es --all
+
+      - name: Reenroll orderer certificate (Vault)
+        run: |
+          kubectl hlf ordnode renew --name=ord-node1 --namespace=default
+          kubectl wait --timeout=300s --for=condition=Running fabricorderernodes.hlf.kungfusoftware.es --all
+
+      - name: Verify channel still operational after mixed reenroll
+        run: |
+          sleep 15
+          kubectl hlf chaincode query --config=org1.yaml \
+            --user=admin --peer=org1-peer0.default \
+            --chaincode=asset --channel=demo \
+            --fcn=GetAllAssets -a '[]'
+
+      # -----------------------------------------------------------------------
+      # Debug info on failure
+      # -----------------------------------------------------------------------
+      - name: Show debug info on failure
+        if: failure()
+        run: |
+          kubectl get nodes -o=wide
+          kubectl get pods -o=wide -A
+          kubectl get service -o=wide -A
+          kubectl get crds
+          kubectl get fabricpeers.hlf.kungfusoftware.es -A \
+            -o=custom-columns='NAME:metadata.name,NAMESPACE:metadata.namespace,STATE:status.status,MESSAGE:status.message'
+          kubectl get fabricorderernodes.hlf.kungfusoftware.es -A \
+            -o=custom-columns='NAME:metadata.name,NAMESPACE:metadata.namespace,STATE:status.status,MESSAGE:status.message'
+          kubectl get fabriccas.hlf.kungfusoftware.es -A \
+            -o=custom-columns='NAME:metadata.name,NAMESPACE:metadata.namespace,STATE:status.status,MESSAGE:status.message'
+          kubectl get fabricmainchannels.hlf.kungfusoftware.es -A \
+            -o=custom-columns='NAME:metadata.name,NAMESPACE:metadata.namespace,STATE:status.status,MESSAGE:status.message'
+          kubectl get fabricfollowerchannels.hlf.kungfusoftware.es -A \
+            -o=custom-columns='NAME:metadata.name,NAMESPACE:metadata.namespace,STATE:status.status,MESSAGE:status.message'
+          kubectl get configmap coredns -n kube-system -o yaml
+          echo "--- hlf-operator logs ---"
+          kubectl logs -l app.kubernetes.io/name=hlf-operator -c manager --tail 2500
+          kubectl get fabricmainchannels -o yaml
+          kubectl get fabricfollowerchannels -o yaml
+          POD=$(kubectl get pod -l 'release in (org1-peer0)' -o jsonpath="{.items[0].metadata.name}")
+          kubectl logs $POD -c peer
+          POD=$(kubectl get pod -l 'release in (ord-node1)' -o jsonpath="{.items[0].metadata.name}")
+          kubectl logs $POD
+          echo "--- Vault status ---"
+          vault status || true
+          vault secrets list || true

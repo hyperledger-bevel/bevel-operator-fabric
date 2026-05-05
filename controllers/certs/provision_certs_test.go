@@ -3,9 +3,14 @@ package certs
 import (
 	"context"
 	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/base64"
+	"encoding/pem"
 	"fmt"
+	"math/big"
 	"os"
 	"testing"
 	"time"
@@ -570,4 +575,105 @@ func TestGetCAInfo(t *testing.T) {
 
 		assert.Error(t, err, "GetCAInfo with invalid URL should fail")
 	})
+}
+
+func TestGetClient_ValidCertFile(t *testing.T) {
+	// 1. Dynamically generate a self-signed CA certificate
+	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+
+	notBefore := time.Now()
+	notAfter := notBefore.Add(time.Hour * 24)
+
+	serialNumberLimit := new(big.Int).Lsh(big.NewInt(1), 128)
+	serialNumber, err := rand.Int(rand.Reader, serialNumberLimit)
+	require.NoError(t, err)
+
+	template := x509.Certificate{
+		SerialNumber: serialNumber,
+		Subject: pkix.Name{
+			Organization: []string{"Test Org"},
+		},
+		NotBefore: notBefore,
+		NotAfter:  notAfter,
+
+		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		BasicConstraintsValid: true,
+		IsCA:                  true,
+	}
+
+	derBytes, err := x509.CreateCertificate(rand.Reader, &template, &template, &priv.PublicKey, priv)
+	require.NoError(t, err)
+
+	certPem := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: derBytes})
+
+	// 2. Test GetClient with the generated certificate
+	caParams := FabricCAParams{
+		URL:     "https://localhost:7054",
+		TLSCert: string(certPem),
+	}
+
+	initialFDs, err := countOpenFiles()
+	require.NoError(t, err)
+
+	client, cleanup, err := GetClient(caParams)
+	require.NoError(t, err)
+	require.NotNil(t, client)
+
+	finalFDs, err := countOpenFiles()
+	require.NoError(t, err)
+
+	// If the file handle for the certificate was not closed, finalFDs would be initialFDs + 1.
+	// We allow finalFDs <= initialFDs to account for any other FDs being closed by background processes.
+	assert.LessOrEqual(t, finalFDs, initialFDs, fmt.Sprintf("File descriptor leak detected: started with %d, ended with %d", initialFDs, finalFDs))
+
+	if cleanup != nil {
+		cleanup()
+	}
+}
+
+func TestGetClient_NoTLSCert(t *testing.T) {
+	caParams := FabricCAParams{
+		URL:     "http://localhost:7054",
+		TLSCert: "",
+	}
+
+	client, cleanup, err := GetClient(caParams)
+	defer func() {
+		if cleanup != nil {
+			cleanup()
+		}
+	}()
+
+	assert.NoError(t, err)
+	assert.NotNil(t, client)
+	assert.False(t, client.Config.TLS.Enabled)
+}
+
+func TestGetClient_InvalidTLSCert(t *testing.T) {
+	caParams := FabricCAParams{
+		URL:     "https://localhost:7054",
+		TLSCert: "---BEGIN CERTIFICATE---\ninvalid-data\n---END CERTIFICATE---",
+	}
+
+	client, cleanup, err := GetClient(caParams)
+	defer func() {
+		if cleanup != nil {
+			cleanup()
+		}
+	}()
+
+	// Init should fail because the certificate is invalid
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "Failed to process certificate")
+	assert.Nil(t, client)
+}
+
+func countOpenFiles() (int, error) {
+	files, err := os.ReadDir("/proc/self/fd")
+	if err != nil {
+		return 0, err
+	}
+	return len(files), nil
 }

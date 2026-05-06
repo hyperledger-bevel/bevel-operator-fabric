@@ -356,7 +356,7 @@ func (c *createCmd) run() error {
 			Catls: &v1alpha1.Catls{
 				Cacert: "",
 				SecretRef: &v1alpha1.SecretRefNSKey{
-					Name:      fmt.Sprintf("%s--tls-cryptomaterial", certAuth.Name),
+					Name:      fmt.Sprintf("%s--tls-cryptomaterial", certAuth.Item.Name),
 					Namespace: certAuth.Namespace,
 					Key:       "tls.crt",
 				},
@@ -372,7 +372,7 @@ func (c *createCmd) run() error {
 			Catls: &v1alpha1.Catls{
 				Cacert: "",
 				SecretRef: &v1alpha1.SecretRefNSKey{
-					Name:      fmt.Sprintf("%s--tls-cryptomaterial", certAuth.Name),
+					Name:      fmt.Sprintf("%s--tls-cryptomaterial", certAuth.Item.Name),
 					Namespace: certAuth.Namespace,
 					Key:       "tls.crt",
 				},

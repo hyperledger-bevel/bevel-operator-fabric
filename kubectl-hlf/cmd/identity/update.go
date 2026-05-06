@@ -74,7 +74,7 @@ func (c *updateIdentityCmd) run() error {
 		Catls: &v1alpha1.Catls{
 			Cacert: "",
 			SecretRef: &v1alpha1.SecretRefNSKey{
-				Name:      fmt.Sprintf("%s--tls-cryptomaterial", fabricCA.Name),
+				Name:      fmt.Sprintf("%s--tls-cryptomaterial", fabricCA.Item.Name),
 				Namespace: fabricCA.Namespace,
 				Key:       "tls.crt",
 			},

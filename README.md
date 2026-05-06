@@ -116,9 +116,9 @@ In this step we are going to install the kubernetes operator for Fabric, this wi
 To install helm: [https://helm.sh/docs/intro/install/](https://helm.sh/docs/intro/install/)
 
 ```bash
-helm repo add kfs https://kfsoftware.github.io/hlf-helm-charts --force-update
+helm repo add bevel https://hyperledger-bevel.github.io/bevel-operator-fabric/ --force-update
 
-helm install hlf-operator --version=1.13.0 -- kfs/hlf-operator
+helm install hlf-operator --version=1.14.0 bevel/hlf-operator
 ```
 
 

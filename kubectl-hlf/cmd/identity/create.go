@@ -2,7 +2,6 @@ package identity
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
 
 	"github.com/kfsoftware/hlf-operator/kubectl-hlf/cmd/helpers"
@@ -114,7 +113,12 @@ func (c *createIdentityCmd) run() error {
 		fabricIdentitySpec.Caport = 7054
 		fabricIdentitySpec.Caname = c.ca
 		fabricIdentitySpec.Catls = &v1alpha1.Catls{
-			Cacert: base64.StdEncoding.EncodeToString([]byte(fabricCA.Status.TlsCert)),
+			Cacert: "",
+			SecretRef: &v1alpha1.SecretRefNSKey{
+				Name:      fmt.Sprintf("%s--tls-cryptomaterial", fabricCA.Name),
+				Namespace: fabricCA.Namespace,
+				Key:       "tls.crt",
+			},
 		}
 		fabricIdentitySpec.Enrollid = c.enrollId
 		fabricIdentitySpec.Enrollsecret = c.enrollSecret

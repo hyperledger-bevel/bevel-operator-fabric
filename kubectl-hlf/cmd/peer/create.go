@@ -2,7 +2,6 @@ package peer
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
 	"io"
 	"strings"
@@ -355,7 +354,12 @@ func (c *createCmd) run() error {
 			Caport: caPort,
 			Caname: certAuth.Spec.CA.Name,
 			Catls: &v1alpha1.Catls{
-				Cacert: base64.StdEncoding.EncodeToString([]byte(certAuth.Status.TlsCert)),
+				Cacert: "",
+				SecretRef: &v1alpha1.SecretRefNSKey{
+					Name:      fmt.Sprintf("%s--tls-cryptomaterial", certAuth.Item.Name),
+					Namespace: certAuth.Namespace,
+					Key:       "tls.crt",
+				},
 			},
 			Enrollid:     c.peerOpts.EnrollID,
 			Enrollsecret: c.peerOpts.EnrollPW,
@@ -366,7 +370,12 @@ func (c *createCmd) run() error {
 			Caport: caPort,
 			Caname: certAuth.Spec.TLSCA.Name,
 			Catls: &v1alpha1.Catls{
-				Cacert: base64.StdEncoding.EncodeToString([]byte(certAuth.Status.TlsCert)),
+				Cacert: "",
+				SecretRef: &v1alpha1.SecretRefNSKey{
+					Name:      fmt.Sprintf("%s--tls-cryptomaterial", certAuth.Item.Name),
+					Namespace: certAuth.Namespace,
+					Key:       "tls.crt",
+				},
 			},
 			Csr: v1alpha1.Csr{
 				Hosts: csrHosts,

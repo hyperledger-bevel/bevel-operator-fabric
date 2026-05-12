@@ -320,7 +320,7 @@ var _ = Describe("user", func() {
 
 		BeforeEach(func() {
 			modifyAttributes = []api.Attribute{
-				api.Attribute{
+				{
 					Name:  "attr1",
 					Value: "attr1_value",
 				},
@@ -329,31 +329,31 @@ var _ = Describe("user", func() {
 
 		It("modifies existing attributes", func() {
 			newAttributes := []api.Attribute{
-				api.Attribute{
+				{
 					Name:  "attr1",
 					Value: "attr1_newvalue",
 				},
 			}
 
 			attrs := user.GetNewAttributes(modifyAttributes, newAttributes)
-			Expect(attrs).To(Equal([]api.Attribute{api.Attribute{Name: "attr1", Value: "attr1_newvalue", ECert: false}}))
+			Expect(attrs).To(Equal([]api.Attribute{{Name: "attr1", Value: "attr1_newvalue", ECert: false}}))
 		})
 
 		It("add attributes if not found", func() {
 			newAttributes := []api.Attribute{
-				api.Attribute{
+				{
 					Name:  "attr2",
 					Value: "attr2_value",
 				},
 			}
 
 			attrs := user.GetNewAttributes(modifyAttributes, newAttributes)
-			Expect(attrs).To(Equal([]api.Attribute{api.Attribute{Name: "attr1", Value: "attr1_value", ECert: false}, api.Attribute{Name: "attr2", Value: "attr2_value", ECert: false}}))
+			Expect(attrs).To(Equal([]api.Attribute{{Name: "attr1", Value: "attr1_value", ECert: false}, {Name: "attr2", Value: "attr2_value", ECert: false}}))
 		})
 
 		It("deletes attribute if value specified for attribute is empty string", func() {
 			newAttributes := []api.Attribute{
-				api.Attribute{
+				{
 					Name:  "attr1",
 					Value: "",
 				},
@@ -401,7 +401,7 @@ var _ = Describe("user", func() {
 
 		It("modifies existing attributes", func() {
 			newAttributes = []api.Attribute{
-				api.Attribute{
+				{
 					Name:  "attr1",
 					Value: "attr1_newvalue",
 				},
@@ -416,7 +416,7 @@ var _ = Describe("user", func() {
 
 		It("modifies existing attributes using transaction", func() {
 			newAttributes = []api.Attribute{
-				api.Attribute{
+				{
 					Name:  "attr1",
 					Value: "attr1_newvalue",
 				},

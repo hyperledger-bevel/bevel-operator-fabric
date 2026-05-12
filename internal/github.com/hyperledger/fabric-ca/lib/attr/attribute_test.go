@@ -55,7 +55,7 @@ func negativeTests(t *testing.T) {
 
 	// Negative Case: Registrar does not have 'hf.Registrar.Attribute'
 	requestedAttrs := []api.Attribute{
-		api.Attribute{
+		{
 			Name:  Roles,
 			Value: "peer,client",
 		},
@@ -65,7 +65,7 @@ func negativeTests(t *testing.T) {
 
 	// Negative Case: Registrar does not have any value for 'hf.Registrar.Attribute'
 	registrar = getUser("admin", []api.Attribute{
-		api.Attribute{
+		{
 			Name:  RegistrarAttr,
 			Value: "",
 		},
@@ -75,7 +75,7 @@ func negativeTests(t *testing.T) {
 
 	// Negative Case: Registrar does not have 'hf.Registrar.Roles' as a value for 'hf.Registrar.Attribute'
 	registrar = getUser("admin", []api.Attribute{
-		api.Attribute{
+		{
 			Name:  RegistrarAttr,
 			Value: "hf.Revoker",
 		},
@@ -85,7 +85,7 @@ func negativeTests(t *testing.T) {
 
 	// Negative Case: Registrar has 'hf.Registrar.Roles' as a value for 'hf.Registrar.Attribute' but does not own 'hf.Registrar.Roles'
 	registrar = getUser("admin", []api.Attribute{
-		api.Attribute{
+		{
 			Name:  RegistrarAttr,
 			Value: "hf.Registrar.Roles",
 		},
@@ -96,17 +96,17 @@ func negativeTests(t *testing.T) {
 	// Negative Case: Registrar has 'hf.Registrar.Roles' with a value of 'peer', can't register a request for 'hf.Registrar.Roles=peer,client'. Must
 	// be a equal or subset.
 	registrar = getUser("admin", []api.Attribute{
-		api.Attribute{
+		{
 			Name:  Roles,
 			Value: "peer",
 		},
-		api.Attribute{
+		{
 			Name:  RegistrarAttr,
 			Value: "hf.Registrar.Roles",
 		},
 	})
 	requestedAttrs = []api.Attribute{
-		api.Attribute{
+		{
 			Name:  Roles,
 			Value: "peer,client",
 		},
@@ -117,23 +117,23 @@ func negativeTests(t *testing.T) {
 	// Negative Case: User has 'hf.Registrar.Roles' with a value of 'peer', can't register a request for 'hf.Registrar.DeletgateRoles=peer,client'. Must
 	// be a equal or subset.
 	registrar = getUser("admin", []api.Attribute{
-		api.Attribute{
+		{
 			Name:  DelegateRoles,
 			Value: "client,peer",
 		},
-		api.Attribute{
+		{
 			Name:  RegistrarAttr,
 			Value: "hf.Registrar.Roles,hf.Registrar.DelegateRoles",
 		},
 	})
 	requestedAttrs = []api.Attribute{
-		api.Attribute{
+		{
 			Name:  DelegateRoles,
 			Value: "peer,client",
 		},
 	}
 	user = getUser("testuser", []api.Attribute{
-		api.Attribute{
+		{
 			Name:  Roles,
 			Value: "peer",
 		},
@@ -143,17 +143,17 @@ func negativeTests(t *testing.T) {
 
 	// Negative Case: Registrar does not have 'hf.Revoker' as a value for 'hf.Registrar.Attributes'
 	registrar = getUser("admin", []api.Attribute{
-		api.Attribute{
+		{
 			Name:  DelegateRoles,
 			Value: "client,peer",
 		},
-		api.Attribute{
+		{
 			Name:  RegistrarAttr,
 			Value: "hf.Registrar.Roles,hf.Registrar.DelegateRoles,hf.Registrar.Attributes",
 		},
 	})
 	requestedAttrs = []api.Attribute{
-		api.Attribute{
+		{
 			Name:  RegistrarAttr,
 			Value: "hf.Revoker",
 		},
@@ -164,17 +164,17 @@ func negativeTests(t *testing.T) {
 	// Negative Case: User requesting value of 'hf.Revoker' for 'hf.Registrar.Attribute' attribute, but the
 	// user does not own 'hf.Revoker'
 	registrar = getUser("admin", []api.Attribute{
-		api.Attribute{
+		{
 			Name:  DelegateRoles,
 			Value: "client,peer",
 		},
-		api.Attribute{
+		{
 			Name:  RegistrarAttr,
 			Value: "hf.Registrar.Roles,hf.Registrar.DelegateRoles,hf.Registrar.Attributes,hf.Revoker",
 		},
 	})
 	requestedAttrs = []api.Attribute{
-		api.Attribute{
+		{
 			Name:  RegistrarAttr,
 			Value: "hf.Revoker",
 		},
@@ -185,7 +185,7 @@ func negativeTests(t *testing.T) {
 	// Negative Case: User is nil (i.e. New registration request, not a modification) requesting value of 'hf.Revoker' for 'hf.Registrar.Attribute' attribute, but the
 	// user is not being registered with 'hf.Revoker'
 	requestedAttrs = []api.Attribute{
-		api.Attribute{
+		{
 			Name:  RegistrarAttr,
 			Value: "hf.Revoker",
 		},
@@ -197,23 +197,23 @@ func negativeTests(t *testing.T) {
 	// Negative Case: User requesting attribute 'hf.FakeAttribute' using reserved 'hf.' attribute fix for an
 	// invalid attribute name
 	registrar = getUser("admin", []api.Attribute{
-		api.Attribute{
+		{
 			Name:  "hf.FakeAttribute",
 			Value: "fakeValue",
 		},
-		api.Attribute{
+		{
 			Name:  RegistrarAttr,
 			Value: "*",
 		},
 	})
 	requestedAttrs = []api.Attribute{
-		api.Attribute{
+		{
 			Name:  "hf.FakeAttribute",
 			Value: "fakeValue2",
 		},
 	}
 	user = getUser("testuser", []api.Attribute{
-		api.Attribute{
+		{
 			Name:  Roles,
 			Value: "peer",
 		},
@@ -225,17 +225,17 @@ func negativeTests(t *testing.T) {
 	// Negative Case: Registrar registered with a non-bool value, should result in an error when registering
 	// a boolean attribute
 	registrar = getUser("admin", []api.Attribute{
-		api.Attribute{
+		{
 			Name:  IntermediateCA,
 			Value: "nonbool_value",
 		},
-		api.Attribute{
+		{
 			Name:  RegistrarAttr,
 			Value: "*",
 		},
 	})
 	requestedAttrs = []api.Attribute{
-		api.Attribute{
+		{
 			Name:  IntermediateCA,
 			Value: "false",
 		},
@@ -246,17 +246,17 @@ func negativeTests(t *testing.T) {
 	// Negative Case: Registrar registered with a false value, should result in an error when registering
 	// a boolean attribute as true
 	registrar = getUser("admin", []api.Attribute{
-		api.Attribute{
+		{
 			Name:  IntermediateCA,
 			Value: "false",
 		},
-		api.Attribute{
+		{
 			Name:  RegistrarAttr,
 			Value: "*",
 		},
 	})
 	requestedAttrs = []api.Attribute{
-		api.Attribute{
+		{
 			Name:  IntermediateCA,
 			Value: "true",
 		},
@@ -266,17 +266,17 @@ func negativeTests(t *testing.T) {
 
 	// Negative Case: Registrar requesting a non-boolean value
 	registrar = getUser("admin", []api.Attribute{
-		api.Attribute{
+		{
 			Name:  IntermediateCA,
 			Value: "true",
 		},
-		api.Attribute{
+		{
 			Name:  RegistrarAttr,
 			Value: "*",
 		},
 	})
 	requestedAttrs = []api.Attribute{
-		api.Attribute{
+		{
 			Name:  IntermediateCA,
 			Value: "nonbool_value",
 		},
@@ -286,13 +286,13 @@ func negativeTests(t *testing.T) {
 
 	// Negative Case: Registrar requesting to delete an attribute it doesn't posses
 	registrar = getUser("admin", []api.Attribute{
-		api.Attribute{
+		{
 			Name:  RegistrarAttr,
 			Value: "*",
 		},
 	})
 	requestedAttrs = []api.Attribute{
-		api.Attribute{
+		{
 			Name:  IntermediateCA,
 			Value: "",
 		},
@@ -302,13 +302,13 @@ func negativeTests(t *testing.T) {
 
 	// Negative Case: Registrar requesting to modify a fixed attribute
 	registrar = getUser("admin", []api.Attribute{
-		api.Attribute{
+		{
 			Name:  RegistrarAttr,
 			Value: "*",
 		},
 	})
 	requestedAttrs = []api.Attribute{
-		api.Attribute{
+		{
 			Name:  Type,
 			Value: "client",
 		},
@@ -318,7 +318,7 @@ func negativeTests(t *testing.T) {
 
 	// Negative Case: Registrar requesting to modify a fixed attribute
 	requestedAttrs = []api.Attribute{
-		api.Attribute{
+		{
 			Name:  Affiliation,
 			Value: "client",
 		},
@@ -328,7 +328,7 @@ func negativeTests(t *testing.T) {
 
 	// Negative Case: Registrar requesting to modify a fixed attribute
 	requestedAttrs = []api.Attribute{
-		api.Attribute{
+		{
 			Name:  EnrollmentID,
 			Value: "client",
 		},
@@ -339,13 +339,13 @@ func negativeTests(t *testing.T) {
 	// CUSTOM ATTRIBUTE
 	// Registrar requesting custom attribute that does not match pattern that is allowed
 	registrar = getUser("admin", []api.Attribute{
-		api.Attribute{
+		{
 			Name:  RegistrarAttr,
 			Value: "custom.*",
 		},
 	})
 	requestedAttrs = []api.Attribute{
-		api.Attribute{
+		{
 			Name:  "CustomAttr",
 			Value: "CustomValue",
 		},
@@ -367,17 +367,17 @@ func positiveTests(t *testing.T) {
 
 	// Registrar owns hf.IntermediateCA and is allowed to register it
 	registrar = getUser("admin", []api.Attribute{
-		api.Attribute{
+		{
 			Name:  IntermediateCA,
 			Value: "true",
 		},
-		api.Attribute{
+		{
 			Name:  RegistrarAttr,
 			Value: "hf.*",
 		},
 	})
 	requestedAttrs = []api.Attribute{
-		api.Attribute{
+		{
 			Name:  IntermediateCA,
 			Value: "true",
 		},
@@ -387,21 +387,21 @@ func positiveTests(t *testing.T) {
 
 	// Registrar can give user to permission to register 'hf.IntermediateCA'
 	registrar = getUser("admin", []api.Attribute{
-		api.Attribute{
+		{
 			Name:  IntermediateCA,
 			Value: "true",
 		},
-		api.Attribute{
+		{
 			Name:  RegistrarAttr,
 			Value: "hf.*",
 		},
 	})
 	requestedAttrs = []api.Attribute{
-		api.Attribute{
+		{
 			Name:  IntermediateCA,
 			Value: "true",
 		},
-		api.Attribute{
+		{
 			Name:  RegistrarAttr,
 			Value: "hf.IntermediateCA",
 		},
@@ -411,23 +411,23 @@ func positiveTests(t *testing.T) {
 
 	// Valid value for hf.Registrar.DelegateRoles requested
 	registrar = getUser("admin", []api.Attribute{
-		api.Attribute{
+		{
 			Name:  DelegateRoles,
 			Value: "client,peer",
 		},
-		api.Attribute{
+		{
 			Name:  RegistrarAttr,
 			Value: "hf.Registrar.Roles,hf.Registrar.DelegateRoles",
 		},
 	})
 	requestedAttrs = []api.Attribute{
-		api.Attribute{
+		{
 			Name:  DelegateRoles,
 			Value: "peer",
 		},
 	}
 	user = getUser("testuser", []api.Attribute{
-		api.Attribute{
+		{
 			Name:  Roles,
 			Value: "peer",
 		},
@@ -437,17 +437,17 @@ func positiveTests(t *testing.T) {
 
 	// Registrar requesting to delete an attribute it
 	registrar = getUser("admin", []api.Attribute{
-		api.Attribute{
+		{
 			Name:  IntermediateCA,
 			Value: "true",
 		},
-		api.Attribute{
+		{
 			Name:  RegistrarAttr,
 			Value: "*",
 		},
 	})
 	requestedAttrs = []api.Attribute{
-		api.Attribute{
+		{
 			Name:  IntermediateCA,
 			Value: "",
 		},
@@ -457,17 +457,17 @@ func positiveTests(t *testing.T) {
 
 	// Registrar requesting to delete an attribute it
 	registrar = getUser("admin", []api.Attribute{
-		api.Attribute{
+		{
 			Name:  Roles,
 			Value: "peer,client",
 		},
-		api.Attribute{
+		{
 			Name:  RegistrarAttr,
 			Value: "*",
 		},
 	})
 	requestedAttrs = []api.Attribute{
-		api.Attribute{
+		{
 			Name:  Roles,
 			Value: "",
 		},
@@ -477,13 +477,13 @@ func positiveTests(t *testing.T) {
 
 	// Registrar requesting to register a custom attribute, no ownership required
 	registrar = getUser("admin", []api.Attribute{
-		api.Attribute{
+		{
 			Name:  RegistrarAttr,
 			Value: "custom.*",
 		},
 	})
 	requestedAttrs = []api.Attribute{
-		api.Attribute{
+		{
 			Name:  "custom.Attr",
 			Value: "customValue",
 		},
@@ -492,21 +492,21 @@ func positiveTests(t *testing.T) {
 	assert.NoError(t, err, "Registrar failed to register custom attribute")
 
 	registrar = getUser("admin", []api.Attribute{
-		api.Attribute{
+		{
 			Name:  Revoker,
 			Value: "true",
 		},
-		api.Attribute{
+		{
 			Name:  RegistrarAttr,
 			Value: "*",
 		},
 	})
 	requestedAttrs = []api.Attribute{
-		api.Attribute{
+		{
 			Name:  Revoker,
 			Value: "true",
 		},
-		api.Attribute{
+		{
 			Name:  RegistrarAttr,
 			Value: "hf.Revoker",
 		},

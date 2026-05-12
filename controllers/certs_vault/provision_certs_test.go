@@ -275,6 +275,174 @@ func GetFakeClientsetWithVaultToken() kubernetes.Interface {
 }
 
 // CreateVaultRole creates a new role in Vault PKI with the given parameters
+// TestAppRoleAuth validates end-to-end Vault AppRole authentication via GetClient
+func TestAppRoleAuth(t *testing.T) {
+	ctx := context.Background()
+
+	vaultContainer, err := setupVaultDev(ctx)
+	require.NoError(t, err, "Failed to setup vault")
+	defer func() {
+		assert.NoError(t, vaultContainer.Terminate(ctx), "Failed to terminate container")
+	}()
+
+	// Create a privileged client with the root token to configure AppRole
+	vaultClient, err := vault.New(
+		vault.WithAddress(vaultContainer.Address),
+		vault.WithRequestTimeout(requestTimeout),
+	)
+	require.NoError(t, err)
+	err = vaultClient.SetToken(vaultContainer.RootToken)
+	require.NoError(t, err)
+
+	// Enable AppRole auth at the default mount path
+	err = EnableAppRole(ctx, vaultClient, "approle")
+	require.NoError(t, err, "Failed to enable AppRole auth")
+
+	// Write a minimal ACL policy for the test role
+	policy := `path "sys/mounts" { capabilities = ["read", "list"] }`
+	_, err = vaultClient.System.PoliciesWriteAclPolicy(ctx, "test-approle-policy", schema.PoliciesWriteAclPolicyRequest{
+		Policy: policy,
+	})
+	require.NoError(t, err, "Failed to write ACL policy")
+
+	// Create an AppRole with the policy attached
+	err = CreateAppRole(ctx, vaultClient, "test-role", map[string]interface{}{
+		"token_policies": "test-approle-policy",
+		"token_ttl":      "1h",
+		"token_max_ttl":  "24h",
+	})
+	require.NoError(t, err, "Failed to create AppRole")
+
+	// Retrieve the RoleID
+	roleID, err := GetAppRoleRoleID(ctx, vaultClient, "test-role")
+	require.NoError(t, err, "Failed to read AppRole RoleID")
+	require.NotEmpty(t, roleID, "RoleID must not be empty")
+
+	// Generate a SecretID
+	secretID, err := GenerateAppRoleSecretID(ctx, vaultClient, "test-role")
+	require.NoError(t, err, "Failed to generate AppRole SecretID")
+	require.NotEmpty(t, secretID, "SecretID must not be empty")
+
+	// Build fake K8s secrets for the AppRole credentials
+	roleSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "vault-approle-role-id",
+			Namespace: "default",
+		},
+		Type: corev1.SecretTypeOpaque,
+		Data: map[string][]byte{
+			"role-id": []byte(roleID),
+		},
+	}
+	secretIDSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "vault-approle-secret-id",
+			Namespace: "default",
+		},
+		Type: corev1.SecretTypeOpaque,
+		Data: map[string][]byte{
+			"secret-id": []byte(secretID),
+		},
+	}
+	clientSet := fake.NewClientset(roleSecret, secretIDSecret)
+
+	// Configure VaultSpecConf with AppRole auth using RoleIdSecretRef
+	vaultConf := &hlfv1alpha1.VaultSpecConf{
+		URL:           vaultContainer.Address,
+		TLSSkipVerify: true,
+		RoleIdSecretRef: &hlfv1alpha1.VaultSecretRef{
+			Name:      "vault-approle-role-id",
+			Namespace: "default",
+			Key:       "role-id",
+		},
+		SecretIdSecretRef: &hlfv1alpha1.VaultSecretRef{
+			Name:      "vault-approle-secret-id",
+			Namespace: "default",
+			Key:       "secret-id",
+		},
+		AuthPath:   "approle",
+		MaxRetries: 0,
+		Timeout:    "10s",
+	}
+
+	// Exercise GetClient with AppRole auth
+	client, err := GetClient(vaultConf, clientSet)
+	require.NoError(t, err, "GetClient should succeed with valid AppRole credentials")
+	require.NotNil(t, client, "GetClient must return a non-nil client")
+
+	// Verify the client is authenticated by reading sys/mounts (our policy allows it)
+	_, err = client.Read(ctx, "sys/mounts")
+	assert.NoError(t, err, "Authenticated client should be able to read sys/mounts")
+}
+
+// EnableAppRole enables the AppRole auth method at the given mount path
+func EnableAppRole(ctx context.Context, vaultClient *vault.Client, mountPath string) error {
+	if mountPath == "" {
+		mountPath = "approle"
+	}
+	req := schema.AuthEnableMethodRequest{
+		Type: "approle",
+	}
+	_, err := vaultClient.System.AuthEnableMethod(ctx, mountPath, req)
+	if err != nil {
+		return fmt.Errorf("failed to enable AppRole auth: %w", err)
+	}
+	return nil
+}
+
+// CreateAppRole creates a new AppRole with the given parameters
+func CreateAppRole(ctx context.Context, vaultClient *vault.Client, roleName string, params map[string]interface{}) error {
+	if roleName == "" {
+		return fmt.Errorf("roleName cannot be empty")
+	}
+	rolePath := fmt.Sprintf("auth/approle/role/%s", roleName)
+	_, err := vaultClient.Write(ctx, rolePath, params)
+	if err != nil {
+		return fmt.Errorf("failed to create AppRole: %w", err)
+	}
+	return nil
+}
+
+// GetAppRoleRoleID reads the RoleID for the given AppRole
+func GetAppRoleRoleID(ctx context.Context, vaultClient *vault.Client, roleName string) (string, error) {
+	if roleName == "" {
+		return "", fmt.Errorf("roleName cannot be empty")
+	}
+	roleIDPath := fmt.Sprintf("auth/approle/role/%s/role-id", roleName)
+	resp, err := vaultClient.Read(ctx, roleIDPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read AppRole RoleID: %w", err)
+	}
+	if resp == nil || resp.Data == nil {
+		return "", fmt.Errorf("empty response when reading RoleID")
+	}
+	roleID, ok := resp.Data["role_id"].(string)
+	if !ok || roleID == "" {
+		return "", fmt.Errorf("role_id not found or not a string in response")
+	}
+	return roleID, nil
+}
+
+// GenerateAppRoleSecretID generates a new SecretID for the given AppRole
+func GenerateAppRoleSecretID(ctx context.Context, vaultClient *vault.Client, roleName string) (string, error) {
+	if roleName == "" {
+		return "", fmt.Errorf("roleName cannot be empty")
+	}
+	secretIDPath := fmt.Sprintf("auth/approle/role/%s/secret-id", roleName)
+	resp, err := vaultClient.Write(ctx, secretIDPath, map[string]interface{}{})
+	if err != nil {
+		return "", fmt.Errorf("failed to generate AppRole SecretID: %w", err)
+	}
+	if resp == nil || resp.Data == nil {
+		return "", fmt.Errorf("empty response when generating SecretID")
+	}
+	secretID, ok := resp.Data["secret_id"].(string)
+	if !ok || secretID == "" {
+		return "", fmt.Errorf("secret_id not found or not a string in response")
+	}
+	return secretID, nil
+}
+
 func CreateVaultRole(ctx context.Context, vaultClient *vault.Client, roleName string, params map[string]interface{}) error {
 	if roleName == "" {
 		return fmt.Errorf("roleName cannot be empty")

@@ -673,8 +673,79 @@ func GetClient(spec *hlfv1alpha1.VaultSpecConf, clientset kubernetes.Interface) 
 		}
 
 		client.SetToken(string(tokenBytes))
-	} else if spec.Role != "" && spec.SecretIdSecretRef != nil {
-		return nil, fmt.Errorf("role and secretId not implemented yet")
+	} else if spec.Role != "" || spec.RoleIdSecretRef != nil {
+		// AppRole authentication
+		var roleID string
+
+		if spec.RoleIdSecretRef != nil {
+			// Get RoleID from Kubernetes secret
+			secretNamespace := spec.RoleIdSecretRef.Namespace
+			if secretNamespace == "" {
+				secretNamespace = "default"
+			}
+			secret, err := clientset.CoreV1().Secrets(secretNamespace).Get(
+				context.Background(),
+				spec.RoleIdSecretRef.Name,
+				v1.GetOptions{},
+			)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get RoleID secret: %w", err)
+			}
+			roleIDBytes := secret.Data[spec.RoleIdSecretRef.Key]
+			if roleIDBytes == nil {
+				return nil, fmt.Errorf("key %s not found in RoleID secret: %s/%s", spec.RoleIdSecretRef.Key, secretNamespace, spec.RoleIdSecretRef.Name)
+			}
+			roleID = string(roleIDBytes)
+		} else {
+			roleID = spec.Role
+		}
+
+		if spec.SecretIdSecretRef == nil {
+			return nil, fmt.Errorf("SecretIdSecretRef is required for AppRole authentication")
+		}
+
+		// Get SecretID from Kubernetes secret
+		secretNamespace := spec.SecretIdSecretRef.Namespace
+		if secretNamespace == "" {
+			secretNamespace = "default"
+		}
+		secret, err := clientset.CoreV1().Secrets(secretNamespace).Get(
+			context.Background(),
+			spec.SecretIdSecretRef.Name,
+			v1.GetOptions{},
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get SecretID secret: %w", err)
+		}
+		secretIDBytes := secret.Data[spec.SecretIdSecretRef.Key]
+		if secretIDBytes == nil {
+			return nil, fmt.Errorf("key %s not found in SecretID secret: %s/%s", spec.SecretIdSecretRef.Key, secretNamespace, spec.SecretIdSecretRef.Name)
+		}
+
+		// Determine the AppRole auth mount path
+		authPath := spec.AuthPath
+		if authPath == "" {
+			authPath = "approle"
+		}
+
+		// Perform AppRole login
+		resp, err := client.Auth.AppRoleLogin(
+			context.Background(),
+			schema.AppRoleLoginRequest{
+				RoleId:   roleID,
+				SecretId: string(secretIDBytes),
+			},
+			vault.WithMountPath(authPath),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("AppRole login failed: %w", err)
+		}
+
+		if resp.Auth == nil || resp.Auth.ClientToken == "" {
+			return nil, fmt.Errorf("AppRole login succeeded but no client token returned")
+		}
+
+		client.SetToken(resp.Auth.ClientToken)
 	} else {
 		return nil, fmt.Errorf("no authentication method provided for Vault")
 	}

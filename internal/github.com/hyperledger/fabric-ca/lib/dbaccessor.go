@@ -699,7 +699,7 @@ func (d *Accessor) modifyAffiliationTx(tx *sqlx.Tx, args ...interface{}) (interf
 					userAff := cadbuser.GetAffiliation(user)                              // Get the current affiliation
 					newAff := strings.Replace(userAff, oldAffiliation, newAffiliation, 1) // Replace old affiliation with new affiliation
 					userAttrs := cadbuser.GetNewAttributes(currentAttrs, []api.Attribute{ // Generate the new set of attributes for user
-						api.Attribute{
+						{
 							Name:  attr.Affiliation,
 							Value: newAff,
 						},

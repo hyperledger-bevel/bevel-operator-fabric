@@ -5075,6 +5075,11 @@ func (in *VaultSpecConf) DeepCopyInto(out *VaultSpecConf) {
 		*out = new(VaultSecretRef)
 		**out = **in
 	}
+	if in.RoleIdSecretRef != nil {
+		in, out := &in.RoleIdSecretRef, &out.RoleIdSecretRef
+		*out = new(VaultSecretRef)
+		**out = **in
+	}
 	if in.SecretIdSecretRef != nil {
 		in, out := &in.SecretIdSecretRef, &out.SecretIdSecretRef
 		*out = new(VaultSecretRef)

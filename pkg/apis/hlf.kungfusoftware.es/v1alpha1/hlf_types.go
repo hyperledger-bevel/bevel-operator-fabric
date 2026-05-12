@@ -926,10 +926,16 @@ type VaultSpecConf struct {
 	// +optional
 	// +nullable
 	TokenSecretRef *VaultSecretRef `json:"tokenSecretRef,omitempty"`
-	// Role for Kubernetes auth method
+	// Role for Kubernetes auth method or AppRole role identifier
 	// +optional
 	// +nullable
 	Role string `json:"role"`
+
+	// RoleIdSecretRef references a Kubernetes secret that contains the AppRole RoleID
+	// If set, this takes precedence over the Role field for AppRole authentication.
+	// +optional
+	// +nullable
+	RoleIdSecretRef *VaultSecretRef `json:"roleIdSecretRef,omitempty"`
 
 	// Path in Vault where secrets are stored
 	// +optional

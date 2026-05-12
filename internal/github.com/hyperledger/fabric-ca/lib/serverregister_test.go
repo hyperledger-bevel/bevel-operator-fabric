@@ -124,7 +124,7 @@ func missingHfRegistrarAttr(t *testing.T, registrar *Identity) {
 	// Negative case: Registrar does not have the attribute 'hf.Registrar.Attributes'
 	_, err := registrar.Register(registerTestUser("user1",
 		[]api.Attribute{
-			api.Attribute{
+			{
 				Name:  "fake.attribute",
 				Value: "val1",
 			},
@@ -137,7 +137,7 @@ func missingHfRegistrarAttr(t *testing.T, registrar *Identity) {
 	// Negative case: Registrar does not own 'hf.Registrar.Attributes'
 	_, err = registrar.Register(registerTestUser("user1",
 		[]api.Attribute{
-			api.Attribute{
+			{
 				Name:  attr.RegistrarAttr,
 				Value: "val1",
 			},
@@ -151,7 +151,7 @@ func missingHfRegistrarAttr(t *testing.T, registrar *Identity) {
 func invalidAttrRequestValues(t *testing.T, registrar *Identity) {
 	_, err := registrar.Register(registerTestUser("user1",
 		[]api.Attribute{
-			api.Attribute{
+			{
 				Name:  attr.Roles,
 				Value: "user,peer,client",
 			},
@@ -164,7 +164,7 @@ func invalidAttrRequestValues(t *testing.T, registrar *Identity) {
 	// Negative case: Registrar owns this attribute but with a value of 'false', can't register with a value of 'true'
 	_, err = registrar.Register(registerTestUser("user1",
 		[]api.Attribute{
-			api.Attribute{
+			{
 				Name:  attr.Revoker,
 				Value: "true",
 			},
@@ -177,7 +177,7 @@ func invalidAttrRequestValues(t *testing.T, registrar *Identity) {
 	// Negative case: Registrar owns this attribute but with a value of 'false', can't register with a value of 'true'
 	_, err = registrar.Register(registerTestUser("user1",
 		[]api.Attribute{
-			api.Attribute{
+			{
 				Name:  "hf.FakeAttr",
 				Value: "true",
 			},
@@ -192,7 +192,7 @@ func invalidAttrRequest(t *testing.T, registrar *Identity) {
 	// Negative case: Registrar's hf.Registrar.Attribute = a.b.c, x.y.*, testattr*, attr$, hf.Registrar.Attributes, hf.Revoker
 	_, err := registrar.Register(registerTestUser("user2",
 		[]api.Attribute{
-			api.Attribute{
+			{
 				Name:  "a.b.*",
 				Value: "val1",
 			},
@@ -205,7 +205,7 @@ func invalidAttrRequest(t *testing.T, registrar *Identity) {
 	// Negative case: Registrar's hf.Registrar.Attribute = a.b.c, x.y.*, testattr*, attr$, hf.Registrar.Attributes, hf.Revoker
 	_, err = registrar.Register(registerTestUser("user2",
 		[]api.Attribute{
-			api.Attribute{
+			{
 				Name:  "a.b.c.d",
 				Value: "val1",
 			},
@@ -218,7 +218,7 @@ func invalidAttrRequest(t *testing.T, registrar *Identity) {
 	// Negative case: Registrar's hf.Registrar.Attribute = a.b.c, x.y.*, testattr*, attr$, hf.Registrar.Attributes, hf.Revoker
 	_, err = registrar.Register(registerTestUser("user2",
 		[]api.Attribute{
-			api.Attribute{
+			{
 				Name:  "test",
 				Value: "val1",
 			},
@@ -231,7 +231,7 @@ func invalidAttrRequest(t *testing.T, registrar *Identity) {
 	// Negative case: Registrar's hf.Registrar.Attribute = a.b.c, x.y.*, testattr*, attr$, hf.Registrar.Attributes, hf.Revoker
 	_, err = registrar.Register(registerTestUser("user11",
 		[]api.Attribute{
-			api.Attribute{
+			{
 				Name:  "*",
 				Value: "val1",
 			},
@@ -244,7 +244,7 @@ func invalidAttrRequest(t *testing.T, registrar *Identity) {
 	// Negative case: Registrar's hf.Registrar.Attribute = a.b.c, x.y.*, testattr*, attr$, hf.Registrar.Attributes, hf.Revoker
 	_, err = registrar.Register(registerTestUser("user12",
 		[]api.Attribute{
-			api.Attribute{
+			{
 				Name:  "w.x.y.z",
 				Value: "val1",
 			},
@@ -257,7 +257,7 @@ func invalidAttrRequest(t *testing.T, registrar *Identity) {
 	// Negative case: Registrar's hf.Registrar.Attribute = a.b.c, x.y.*, testattr*, attr$, hf.Registrar.Attributes, hf.Revoker
 	_, err = registrar.Register(registerTestUser("user13",
 		[]api.Attribute{
-			api.Attribute{
+			{
 				Name:  "hf.fakeAttr",
 				Value: "val1",
 			},
@@ -272,7 +272,7 @@ func invalidHfRegistrarAttrRequest(t *testing.T, registrar *Identity) {
 	// Negative case: Registrar's hf.Registrar.Attribute = a.b.c, x.y.*, testattr*, attr$, hf.Registrar.Attributes, hf.Revoker
 	_, err := registrar.Register(registerTestUser("user7",
 		[]api.Attribute{
-			api.Attribute{
+			{
 				Name:  attr.RegistrarAttr,
 				Value: "a.b, x.y",
 			},
@@ -285,7 +285,7 @@ func invalidHfRegistrarAttrRequest(t *testing.T, registrar *Identity) {
 	// Negative case: Registrar's hf.Registrar.Attribute = a.b.c, x.y.*, testattr*, attr$, hf.Registrar.Attributes, hf.Revoker
 	_, err = registrar.Register(registerTestUser("user7",
 		[]api.Attribute{
-			api.Attribute{
+			{
 				Name:  attr.RegistrarAttr,
 				Value: "a.b.c, x.y",
 			},
@@ -298,7 +298,7 @@ func invalidHfRegistrarAttrRequest(t *testing.T, registrar *Identity) {
 	// Negative case: Registrar's hf.Registrar.Attribute = a.b.c, x.y.*, testattr*, attr$, hf.Registrar.Attributes, hf.Revoker
 	_, err = registrar.Register(registerTestUser("user7",
 		[]api.Attribute{
-			api.Attribute{
+			{
 				Name:  attr.RegistrarAttr,
 				Value: "hf.Revoker",
 			},
@@ -333,7 +333,7 @@ func positiveCases(t *testing.T, client *Client) {
 	// Positive case: Registrar's hf.Registrar.Attribute = *
 	_, err = registrar.Register(registerTestUser("user14",
 		[]api.Attribute{
-			api.Attribute{
+			{
 				Name:  "*",
 				Value: "val1",
 			},
@@ -346,7 +346,7 @@ func registerCustomAttr(t *testing.T, registrar *Identity) {
 	// Positive case: Registrar's hf.Registrar.Attribute = a.b.c, x.y.*, testattr*, attr$, hf.Registrar.Attributes, hf.Revoker
 	_, err := registrar.Register(registerTestUser("user2",
 		[]api.Attribute{
-			api.Attribute{
+			{
 				Name:  "a.b.c",
 				Value: "val1",
 			},
@@ -357,7 +357,7 @@ func registerCustomAttr(t *testing.T, registrar *Identity) {
 	// Positive case: Registrar's hf.Registrar.Attribute = a.b.c, x.y.*, testattr*, attr$, hf.Registrar.Attributes, hf.Revoker
 	_, err = registrar.Register(registerTestUser("user3",
 		[]api.Attribute{
-			api.Attribute{
+			{
 				Name:  "testattr1",
 				Value: "val1",
 			},
@@ -368,7 +368,7 @@ func registerCustomAttr(t *testing.T, registrar *Identity) {
 	// Positive case: Registrar's hf.Registrar.Attribute = a.b.c, x.y.*, testattr*, attr$, hf.Registrar.Attributes, hf.Revoker
 	_, err = registrar.Register(registerTestUser("user4",
 		[]api.Attribute{
-			api.Attribute{
+			{
 				Name:  "x.y.*",
 				Value: "val1",
 			},
@@ -379,7 +379,7 @@ func registerCustomAttr(t *testing.T, registrar *Identity) {
 	// Positive case: Registrar's hf.Registrar.Attribute = a.b.c, x.y.*, testattr*, attr$, hf.Registrar.Attributes, hf.Revoker
 	_, err = registrar.Register(registerTestUser("user5",
 		[]api.Attribute{
-			api.Attribute{
+			{
 				Name:  "x.y.z",
 				Value: "val1",
 			},
@@ -392,7 +392,7 @@ func registerHfRegistrarAttr(t *testing.T, registrar *Identity) {
 	// Positive case: Registrar's hf.Registrar.Attribute = a.b.c, x.y.*, testattr*, attr$, hf.Registrar.Attributes, hf.Revoker
 	_, err := registrar.Register(registerTestUser("user6",
 		[]api.Attribute{
-			api.Attribute{
+			{
 				Name:  attr.RegistrarAttr,
 				Value: "a.b.c, x.y.*",
 			},
@@ -403,7 +403,7 @@ func registerHfRegistrarAttr(t *testing.T, registrar *Identity) {
 	// Positive case: Registrar's hf.Registrar.Attribute = a.b.c, x.y.*, testattr*, attr$, hf.Registrar.Attributes, hf.Revoker
 	_, err = registrar.Register(registerTestUser("user7",
 		[]api.Attribute{
-			api.Attribute{
+			{
 				Name:  attr.RegistrarAttr,
 				Value: "a.b.c",
 			},
@@ -414,7 +414,7 @@ func registerHfRegistrarAttr(t *testing.T, registrar *Identity) {
 	// Positive case: Registrar's hf.Registrar.Attribute = a.b.c, x.y.*, testattr*, attr$, hf.Registrar.Attributes, hf.Revoker
 	_, err = registrar.Register(registerTestUser("user8",
 		[]api.Attribute{
-			api.Attribute{
+			{
 				Name:  attr.RegistrarAttr,
 				Value: "x.y.z.z",
 			},
@@ -425,7 +425,7 @@ func registerHfRegistrarAttr(t *testing.T, registrar *Identity) {
 	// Positive case: Registrar's hf.Registrar.Attribute = a.b.c, x.y.*, testattr*, attr$, attr, hf.Registrar.Attributes
 	_, err = registrar.Register(registerTestUser("user9",
 		[]api.Attribute{
-			api.Attribute{
+			{
 				Name:  "attr$",
 				Value: "val1",
 			},
@@ -436,7 +436,7 @@ func registerHfRegistrarAttr(t *testing.T, registrar *Identity) {
 	// Positive case: Registrar's hf.Registrar.Attribute = a.b.c, x.y.*, testattr*, attr$, hf.Registrar.Attributes, hf.Revoker
 	_, err = registrar.Register(registerTestUser("user10",
 		[]api.Attribute{
-			api.Attribute{
+			{
 				Name:  attr.RegistrarAttr,
 				Value: "x.y.z.*",
 			},

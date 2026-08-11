@@ -1070,6 +1070,7 @@ func getCertBytesFromCATLS(client *kubernetes.Clientset, caTls *hlfv1alpha1.Catl
 	}
 	return signCertBytes, nil
 }
+
 // BuildGatewayApiConfig builds the GatewayApi chart config from the CRD spec,
 // applying defaults for empty gateway name and namespace.
 func BuildGatewayApiConfig(spec *hlfv1alpha1.FabricGatewayApi) GatewayApi {

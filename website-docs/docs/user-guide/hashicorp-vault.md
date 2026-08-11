@@ -407,10 +407,105 @@ export SC_NAME=standard
 export SC_NAME=local-path
 ```
 
-### Create a secret for hashicorp vault
+### Vault Authentication Methods
+
+The operator supports multiple authentication methods for Vault. Choose the one that best fits your security requirements.
+
+#### Token Authentication (default)
+
+A Vault token is stored in a Kubernetes secret and referenced in the resource spec:
 
 ```bash
 kubectl create secret generic vault-token --from-literal=token=my-dev-root-token
+```
+
+Used via CLI flags:
+```
+--vault-token-secret="vault-token"
+--vault-token-secret-namespace="default"
+--vault-token-secret-key="token"
+```
+
+Or via CRD spec:
+```yaml
+vault:
+  url: http://vault:8200
+  tokenSecretRef:
+    name: vault-token
+    namespace: default
+    key: token
+```
+
+#### AppRole Authentication
+
+For production deployments, [AppRole](https://developer.hashicorp.com/vault/docs/auth/approle) is the recommended machine-to-machine authentication method. It uses a RoleID and SecretID pair instead of a long-lived token.
+
+Setup in Vault:
+```bash
+# Enable AppRole auth
+vault auth enable approle
+
+# Create the policy referenced by the role. The paths below cover what the
+# operator needs: KV v2 secrets for CA credentials and the PKI engine for
+# certificate issuance. Adjust them if your mounts differ from the defaults
+# (secret, pki).
+vault policy write my-policy - <<'EOF'
+path "secret/data/hlf-ca/*" {
+  capabilities = ["create", "read", "update", "delete", "list"]
+}
+path "secret/metadata/hlf-ca/*" {
+  capabilities = ["read", "delete", "list"]
+}
+path "pki/sign/*" {
+  capabilities = ["create", "update"]
+}
+EOF
+
+# Create a role with the policy
+vault write auth/approle/role/my-role \
+    token_policies="my-policy" \
+    token_ttl=1h \
+    token_max_ttl=24h
+
+# Read the RoleID
+vault read auth/approle/role/my-role/role-id
+
+# Generate a SecretID
+vault write -f auth/approle/role/my-role/secret-id
+```
+
+Store credentials in Kubernetes secrets:
+```bash
+kubectl create secret generic vault-approle-role-id \
+    --from-literal=role-id=<your-role-id>
+kubectl create secret generic vault-approle-secret-id \
+    --from-literal=secret-id=<your-secret-id>
+```
+
+Reference them in the CRD spec:
+```yaml
+vault:
+  url: http://vault:8200
+  roleIdSecretRef:
+    name: vault-approle-role-id
+    namespace: default
+    key: role-id
+  secretIdSecretRef:
+    name: vault-approle-secret-id
+    namespace: default
+    key: secret-id
+  authPath: approle       # optional, defaults to "approle"
+```
+
+The `roleIdSecretRef` field takes precedence over the `role` field. You can also pass the RoleID as a literal string:
+```yaml
+vault:
+  url: http://vault:8200
+  role: "my-approle-role-id"
+  secretIdSecretRef:
+    name: vault-approle-secret-id
+    namespace: default
+    key: secret-id
 ```
 
 ### Deploy a peer

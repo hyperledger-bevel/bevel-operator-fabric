@@ -1613,6 +1613,20 @@ spec:
                       role:
                         nullable: true
                         type: string
+                      roleIdSecretRef:
+                        nullable: true
+                        properties:
+                          key:
+                            type: string
+                          name:
+                            type: string
+                          namespace:
+                            type: string
+                        required:
+                        - key
+                        - name
+                        - namespace
+                        type: object
                       secretIdSecretRef:
                         nullable: true
                         properties:

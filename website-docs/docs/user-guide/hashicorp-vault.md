@@ -445,7 +445,23 @@ Setup in Vault:
 # Enable AppRole auth
 vault auth enable approle
 
-# Create a role with a policy
+# Create the policy referenced by the role. The paths below cover what the
+# operator needs: KV v2 secrets for CA credentials and the PKI engine for
+# certificate issuance. Adjust them if your mounts differ from the defaults
+# (secret, pki).
+vault policy write my-policy - <<'EOF'
+path "secret/data/hlf-ca/*" {
+  capabilities = ["create", "read", "update", "delete", "list"]
+}
+path "secret/metadata/hlf-ca/*" {
+  capabilities = ["read", "delete", "list"]
+}
+path "pki/sign/*" {
+  capabilities = ["create", "update"]
+}
+EOF
+
+# Create a role with the policy
 vault write auth/approle/role/my-role \
     token_policies="my-policy" \
     token_ttl=1h \

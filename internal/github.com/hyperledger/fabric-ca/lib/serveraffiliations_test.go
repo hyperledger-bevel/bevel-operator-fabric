@@ -179,7 +179,7 @@ func TestDynamicAddAffiliation(t *testing.T) {
 	notAffMgr, err := admin.RegisterAndEnroll(&api.RegistrationRequest{
 		Name: "notAffMgr",
 		Attributes: []api.Attribute{
-			{
+			api.Attribute{
 				Name:  "hf.AffiliationMgr",
 				Value: "false",
 			},
@@ -274,7 +274,7 @@ func TestDynamicRemoveAffiliation(t *testing.T) {
 	notRegistrar, err := admin.RegisterAndEnroll(&api.RegistrationRequest{
 		Name: "notregistrar",
 		Attributes: []api.Attribute{
-			{
+			api.Attribute{
 				Name:  "hf.AffiliationMgr",
 				Value: "true",
 			},
@@ -390,7 +390,7 @@ func TestDynamicModifyAffiliation(t *testing.T) {
 		Name:        "testuser1",
 		Affiliation: "org2",
 		Attributes: []api.Attribute{
-			{
+			api.Attribute{
 				Name:  "hf.AffiliationMgr",
 				Value: "true",
 			},

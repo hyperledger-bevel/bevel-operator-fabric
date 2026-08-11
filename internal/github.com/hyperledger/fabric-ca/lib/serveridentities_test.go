@@ -49,7 +49,7 @@ func TestGetAllIDs(t *testing.T) {
 		Type:        "peer",
 		Affiliation: "org2",
 		Attributes: []api.Attribute{
-			{
+			api.Attribute{
 				Name:  "hf.Registrar.Roles",
 				Value: "peer",
 			},
@@ -158,7 +158,7 @@ func TestGetID(t *testing.T) {
 		Type:        "peer",
 		Affiliation: "org2",
 		Attributes: []api.Attribute{
-			{
+			api.Attribute{
 				Name:  "hf.Registrar.Roles",
 				Value: "peer",
 			},
@@ -331,7 +331,7 @@ func TestDynamicRemoveIdentity(t *testing.T) {
 		Type:        "peer",
 		Affiliation: "org2",
 		Attributes: []api.Attribute{
-			{
+			api.Attribute{
 				Name:  "hf.Registrar.Roles",
 				Value: "peer",
 			},
@@ -434,19 +434,19 @@ func TestDynamicModifyIdentity(t *testing.T) {
 		Secret:         "admin3pw",
 		MaxEnrollments: 10,
 		Attributes: []api.Attribute{
-			{
+			api.Attribute{
 				Name:  attr.Roles,
 				Value: "client,orderer,peer",
 			},
-			{
+			api.Attribute{
 				Name:  attr.DelegateRoles,
 				Value: "client,orderer,peer",
 			},
-			{
+			api.Attribute{
 				Name:  attr.Revoker,
 				Value: "true",
 			},
-			{
+			api.Attribute{
 				Name:  attr.RegistrarAttr,
 				Value: "foo, custom.*, hf.Registrar.Roles, hf.Registrar.DelegateRoles, hf.Revoker, hf.Registrar.Attributes",
 			},
@@ -469,7 +469,7 @@ func TestDynamicModifyIdentity(t *testing.T) {
 		MaxEnrollments: 10,
 		Affiliation:    "org2",
 		Attributes: []api.Attribute{
-			{
+			api.Attribute{
 				Name:  "foo",
 				Value: "bar",
 			},
@@ -484,11 +484,11 @@ func TestDynamicModifyIdentity(t *testing.T) {
 		MaxEnrollments: 10,
 		Affiliation:    "hyperledger",
 		Attributes: []api.Attribute{
-			{
+			api.Attribute{
 				Name:  "foo",
 				Value: "bar",
 			},
-			{
+			api.Attribute{
 				Name:  attr.Roles,
 				Value: "client,peer",
 			},
@@ -578,21 +578,21 @@ func modifyFixedValueAttrs(t *testing.T, admin *Identity) {
 		ID: "testuser2",
 	}
 
-	modReq.Attributes = []api.Attribute{{
+	modReq.Attributes = []api.Attribute{api.Attribute{
 		Name:  attr.EnrollmentID,
 		Value: "nottestuser2",
 	}}
 	_, err := admin.ModifyIdentity(modReq)
 	assert.Error(t, err, "Should have failed, caller is not allowed to register/modify 'hf.Type' attribute")
 
-	modReq.Attributes = []api.Attribute{{
+	modReq.Attributes = []api.Attribute{api.Attribute{
 		Name:  attr.Type,
 		Value: "peer",
 	}}
 	_, err = admin.ModifyIdentity(modReq)
 	assert.Error(t, err, "Should have failed, caller is not allowed to register/modify 'hf.Type' attribute")
 
-	modReq.Attributes = []api.Attribute{{
+	modReq.Attributes = []api.Attribute{api.Attribute{
 		Name:  attr.Affiliation,
 		Value: "org1",
 	}}
@@ -606,7 +606,7 @@ func modifyAttributes(t *testing.T, registry user.Registry, admin, admin3 *Ident
 	}
 
 	// Should error, caller is not allowed to register this attribute. Caller does not posses hf.IntermediateCA.
-	modReq.Attributes = []api.Attribute{{
+	modReq.Attributes = []api.Attribute{api.Attribute{
 		Name:  "hf.IntermediateCA",
 		Value: "true",
 	}}
@@ -616,7 +616,7 @@ func modifyAttributes(t *testing.T, registry user.Registry, admin, admin3 *Ident
 	// Should error, caller is not allowed to register attribute 'hf.Registrar.DeletegateRoles' with a value that
 	// is not equal to or a subset of 'hf.Registrar.Roles'. In this case: client,peer
 	modReq.Attributes = []api.Attribute{
-		{
+		api.Attribute{
 			Name:  attr.DelegateRoles,
 			Value: "client,peer,orderer",
 		},
@@ -627,11 +627,11 @@ func modifyAttributes(t *testing.T, registry user.Registry, admin, admin3 *Ident
 	// Caller is allowed to register attribute 'hf.Registrar.DeletegateRoles' with a value that
 	// equal to or a subset of 'hf.Registrar.Roles'. In this case: client,peer,orderer
 	modReq.Attributes = []api.Attribute{
-		{
+		api.Attribute{
 			Name:  attr.Roles,
 			Value: "client,peer,orderer",
 		},
-		{
+		api.Attribute{
 			Name:  attr.DelegateRoles,
 			Value: "client,peer,orderer",
 		},
@@ -642,7 +642,7 @@ func modifyAttributes(t *testing.T, registry user.Registry, admin, admin3 *Ident
 	// Should error, caller is not allowed to register attribute 'hf.Registrar.Attribute' with a value of 'hf.Revoker'. Identity being modified does not posses
 	// the attribute 'hf.Revoker'
 	modReq.Attributes = []api.Attribute{
-		{
+		api.Attribute{
 			Name:  attr.RegistrarAttr,
 			Value: "hf.Revoker",
 		},
@@ -653,11 +653,11 @@ func modifyAttributes(t *testing.T, registry user.Registry, admin, admin3 *Ident
 	// Should not error, caller is  allowed to register attribute 'hf.Registrar.Attribute' with a value of 'hf.Revoker'. Identity being modified does posses
 	// the attribute 'hf.Revoker'
 	modReq.Attributes = []api.Attribute{
-		{
+		api.Attribute{
 			Name:  attr.Revoker,
 			Value: "true",
 		},
-		{
+		api.Attribute{
 			Name:  attr.RegistrarAttr,
 			Value: "hf.Revoker",
 		},
@@ -668,11 +668,11 @@ func modifyAttributes(t *testing.T, registry user.Registry, admin, admin3 *Ident
 	// Should error, caller is not allowed to register attribute 'hf.Registrar.Attribute' with greater
 	// registering abilities than caller
 	modReq.Attributes = []api.Attribute{
-		{
+		api.Attribute{
 			Name:  "foo",
 			Value: "bar2",
 		},
-		{
+		api.Attribute{
 			Name:  attr.RegistrarAttr,
 			Value: "foo,custom",
 		},
@@ -681,11 +681,11 @@ func modifyAttributes(t *testing.T, registry user.Registry, admin, admin3 *Ident
 	assert.Error(t, err, "Should have failed, caller is allowed to register attribute 'hf.Registrar.Attribute' with greater registering abilities than caller")
 
 	modReq.Attributes = []api.Attribute{
-		{
+		api.Attribute{
 			Name:  "foo",
 			Value: "bar2",
 		},
-		{
+		api.Attribute{
 			Name:  attr.RegistrarAttr,
 			Value: "foo,custom.attr",
 		},
@@ -709,7 +709,7 @@ func modifyAttributes(t *testing.T, registry user.Registry, admin, admin3 *Ident
 
 	// Delete attribute 'foo'
 	modReq.Attributes = []api.Attribute{
-		{
+		api.Attribute{
 			Name:  "foo",
 			Value: "",
 		},
@@ -862,7 +862,7 @@ func TestBootstrapUserAddingRoles(t *testing.T) {
 		ID:   "testuser2",
 		Type: "client",
 		Attributes: []api.Attribute{
-			{
+			api.Attribute{
 				Name:  "hf.Registrar.Roles",
 				Value: "peer,client,user,orderer,newType",
 			},
@@ -876,11 +876,11 @@ func TestBootstrapUserAddingRoles(t *testing.T) {
 		ID:   "testuser2",
 		Type: "client",
 		Attributes: []api.Attribute{
-			{
+			api.Attribute{
 				Name:  "hf.Registrar.Roles",
 				Value: "peer,client,user,orderer,newType",
 			},
-			{
+			api.Attribute{
 				Name:  "hf.Registrar.DelegateRoles",
 				Value: "*",
 			},
@@ -893,7 +893,7 @@ func TestBootstrapUserAddingRoles(t *testing.T) {
 		ID:   "testuser3",
 		Type: "client",
 		Attributes: []api.Attribute{
-			{
+			api.Attribute{
 				Name:  "hf.Registrar.DelegateRoles",
 				Value: "peer,client,user,orderer,newType",
 			},
@@ -906,11 +906,11 @@ func TestBootstrapUserAddingRoles(t *testing.T) {
 		ID:   "testuser3",
 		Type: "client",
 		Attributes: []api.Attribute{
-			{
+			api.Attribute{
 				Name:  "hf.Registrar.Roles",
 				Value: "*",
 			},
-			{
+			api.Attribute{
 				Name:  "hf.Registrar.DelegateRoles",
 				Value: "peer,client,user,orderer,newType",
 			},
@@ -923,11 +923,11 @@ func TestBootstrapUserAddingRoles(t *testing.T) {
 		ID:   "testuser4",
 		Type: "client",
 		Attributes: []api.Attribute{
-			{
+			api.Attribute{
 				Name:  "hf.Registrar.Roles",
 				Value: "*",
 			},
-			{
+			api.Attribute{
 				Name:  "hf.Registrar.DelegateRoles",
 				Value: "*",
 			},

@@ -87,11 +87,11 @@ func TestGetServer2(deleteHome bool, port int, home, parentURL string, maxEnroll
 		"org2dept1": nil,
 	}
 	profiles := map[string]*config.SigningProfile{
-		"tls": {
+		"tls": &config.SigningProfile{
 			Usage:        []string{"signing", "key encipherment", "server auth", "client auth", "key agreement"},
 			ExpiryString: "8760h",
 		},
-		"ca": {
+		"ca": &config.SigningProfile{
 			Usage:        []string{"cert sign", "crl sign"},
 			ExpiryString: "8760h",
 			CAConstraint: config.CAConstraint{

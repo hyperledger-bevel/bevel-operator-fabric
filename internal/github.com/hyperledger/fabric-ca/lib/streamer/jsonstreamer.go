@@ -43,8 +43,8 @@ type SearchElement struct {
 // For each element of this array, it streams one element at a time.
 func StreamJSONArray(decoder *json.Decoder, path string, cb func(*json.Decoder) error) (bool, error) {
 	ses := []SearchElement{
-		{Path: path, CB: cb},
-		{Path: "errors", CB: errCB},
+		SearchElement{Path: path, CB: cb},
+		SearchElement{Path: "errors", CB: errCB},
 	}
 	return StreamJSON(decoder, ses)
 }

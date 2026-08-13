@@ -10,9 +10,10 @@ package v1alpha1
 // FabricOperationsConsoleAuthApplyConfiguration represents a declarative configuration of the FabricOperationsConsoleAuth type for use
 // with apply.
 type FabricOperationsConsoleAuthApplyConfiguration struct {
-	Scheme   *string `json:"scheme,omitempty"`
-	Username *string `json:"username,omitempty"`
-	Password *string `json:"password,omitempty"`
+	Scheme            *string                           `json:"scheme,omitempty"`
+	Username          *string                           `json:"username,omitempty"`
+	Password          *string                           `json:"password,omitempty"`
+	PasswordSecretRef *SecretRefNSKeyApplyConfiguration `json:"passwordSecretRef,omitempty"`
 }
 
 // FabricOperationsConsoleAuthApplyConfiguration constructs a declarative configuration of the FabricOperationsConsoleAuth type for use with
@@ -42,5 +43,13 @@ func (b *FabricOperationsConsoleAuthApplyConfiguration) WithUsername(value strin
 // If called multiple times, the Password field is set to the value of the last call.
 func (b *FabricOperationsConsoleAuthApplyConfiguration) WithPassword(value string) *FabricOperationsConsoleAuthApplyConfiguration {
 	b.Password = &value
+	return b
+}
+
+// WithPasswordSecretRef sets the PasswordSecretRef field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the PasswordSecretRef field is set to the value of the last call.
+func (b *FabricOperationsConsoleAuthApplyConfiguration) WithPasswordSecretRef(value *SecretRefNSKeyApplyConfiguration) *FabricOperationsConsoleAuthApplyConfiguration {
+	b.PasswordSecretRef = value
 	return b
 }

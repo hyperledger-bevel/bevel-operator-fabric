@@ -836,6 +836,20 @@ spec:
                 properties:
                   datasource:
                     type: string
+                  datasourceSecretRef:
+                    nullable: true
+                    properties:
+                      key:
+                        type: string
+                      name:
+                        type: string
+                      namespace:
+                        type: string
+                    required:
+                    - key
+                    - name
+                    - namespace
+                    type: object
                   type:
                     type: string
                 required:

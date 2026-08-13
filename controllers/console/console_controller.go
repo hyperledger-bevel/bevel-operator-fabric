@@ -17,6 +17,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/go-logr/logr"
+	"github.com/kfsoftware/hlf-operator/controllers/certs_vault"
 	"github.com/kfsoftware/hlf-operator/controllers/utils"
 	hlfv1alpha1 "github.com/kfsoftware/hlf-operator/pkg/apis/hlf.kungfusoftware.es/v1alpha1"
 	"helm.sh/helm/v3/pkg/action"
@@ -28,6 +29,7 @@ import (
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -291,6 +293,14 @@ func (r *FabricOperationsConsoleReconciler) Reconcile(ctx context.Context, req c
 		return r.updateCRStatusOrFailReconcile(ctx, reqLogger, fabricOpConsole)
 	}
 
+	clientSet, err := utils.GetClientKubeWithConf(r.Config)
+	if err != nil {
+		reqLogger.Error(err, "Failed to create Kubernetes client")
+		r.setConditionStatus(ctx, fabricOpConsole, hlfv1alpha1.FailedStatus, false,
+			errors.Wrap(err, "failed to create Kubernetes client"), false)
+		return r.updateCRStatusOrFailReconcile(ctx, reqLogger, fabricOpConsole)
+	}
+
 	err = r.Get(ctx, req.NamespacedName, fabricOpConsole)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
@@ -357,7 +367,7 @@ func (r *FabricOperationsConsoleReconciler) Reconcile(ctx context.Context, req c
 	)
 	if exists {
 		// update
-		c, err := GetConfig(fabricOpConsole)
+		c, err := GetConfig(fabricOpConsole, clientSet)
 		if err != nil {
 			r.setConditionStatus(ctx, fabricOpConsole, hlfv1alpha1.FailedStatus, false, err, false)
 			return r.updateCRStatusOrFailReconcile(ctx, r.Log, fabricOpConsole)
@@ -427,7 +437,7 @@ func (r *FabricOperationsConsoleReconciler) Reconcile(ctx context.Context, req c
 			r.setConditionStatus(ctx, fabricOpConsole, hlfv1alpha1.FailedStatus, false, err, false)
 			return r.updateCRStatusOrFailReconcile(ctx, r.Log, fabricOpConsole)
 		}
-		c, err := GetConfig(fabricOpConsole)
+		c, err := GetConfig(fabricOpConsole, clientSet)
 		if err != nil {
 			r.setConditionStatus(ctx, fabricOpConsole, hlfv1alpha1.FailedStatus, false, err, false)
 			return r.updateCRStatusOrFailReconcile(ctx, r.Log, fabricOpConsole)
@@ -578,7 +588,7 @@ func (r *FabricOperationsConsoleReconciler) updateCRStatusOrFailReconcile(ctx co
 	return reconcile.Result{}, nil
 }
 
-func GetConfig(conf *hlfv1alpha1.FabricOperationsConsole) (*FabricOperationsConsoleChart, error) {
+func GetConfig(conf *hlfv1alpha1.FabricOperationsConsole, client *kubernetes.Clientset) (*FabricOperationsConsoleChart, error) {
 	spec := conf.Spec
 	ingress := Ingress{}
 	if spec.Ingress.Enabled {
@@ -604,6 +614,22 @@ func GetConfig(conf *hlfv1alpha1.FabricOperationsConsole) (*FabricOperationsCons
 			Hosts:       hosts,
 		}
 	}
+	authPassword := spec.Auth.Password
+	if spec.Auth.PasswordSecretRef != nil {
+		value, err := certs_vault.ResolveSecretRefValue(context.Background(), client, spec.Auth.PasswordSecretRef, nil)
+		if err != nil {
+			return nil, err
+		}
+		authPassword = string(value)
+	}
+	couchdbPassword := spec.CouchDB.Password
+	if spec.CouchDB.PasswordSecretRef != nil {
+		value, err := certs_vault.ResolveSecretRefValue(context.Background(), client, spec.CouchDB.PasswordSecretRef, nil)
+		if err != nil {
+			return nil, err
+		}
+		couchdbPassword = string(value)
+	}
 	var c = FabricOperationsConsoleChart{
 		Replicas: spec.Replicas,
 		Image: Image{
@@ -622,7 +648,7 @@ func GetConfig(conf *hlfv1alpha1.FabricOperationsConsole) (*FabricOperationsCons
 		Auth: Auth{
 			Scheme:   spec.Auth.Scheme,
 			Username: spec.Auth.Username,
-			Password: spec.Auth.Password,
+			Password: authPassword,
 		},
 		CouchDB: CouchDB{
 			External: CouchDBExternal{
@@ -634,7 +660,7 @@ func GetConfig(conf *hlfv1alpha1.FabricOperationsConsole) (*FabricOperationsCons
 			Tag:        spec.CouchDB.Tag,
 			PullPolicy: spec.CouchDB.ImagePullPolicy,
 			Username:   spec.CouchDB.Username,
-			Password:   spec.CouchDB.Password,
+			Password:   couchdbPassword,
 			Persistence: Persistence{
 				Enabled:      true,
 				Annotations:  map[string]string{},

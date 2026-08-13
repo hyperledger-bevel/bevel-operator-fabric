@@ -77,6 +77,20 @@ spec:
                       enrollsecret:
                         nullable: true
                         type: string
+                      enrollsecretSecretRef:
+                        nullable: true
+                        properties:
+                          key:
+                            type: string
+                          name:
+                            type: string
+                          namespace:
+                            type: string
+                        required:
+                        - key
+                        - name
+                        - namespace
+                        type: object
                       external:
                         nullable: true
                         properties:
@@ -261,6 +275,20 @@ spec:
                       enrollsecret:
                         nullable: true
                         type: string
+                      enrollsecretSecretRef:
+                        nullable: true
+                        properties:
+                          key:
+                            type: string
+                          name:
+                            type: string
+                          namespace:
+                            type: string
+                        required:
+                        - key
+                        - name
+                        - namespace
+                        type: object
                       external:
                         nullable: true
                         properties:

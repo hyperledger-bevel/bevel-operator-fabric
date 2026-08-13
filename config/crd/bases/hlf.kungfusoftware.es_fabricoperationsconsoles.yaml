@@ -479,6 +479,20 @@ spec:
                 properties:
                   password:
                     type: string
+                  passwordSecretRef:
+                    nullable: true
+                    properties:
+                      key:
+                        type: string
+                      name:
+                        type: string
+                      namespace:
+                        type: string
+                    required:
+                    - key
+                    - name
+                    - namespace
+                    type: object
                   scheme:
                     default: couchdb
                     type: string
@@ -952,6 +966,20 @@ spec:
                     type: array
                   password:
                     type: string
+                  passwordSecretRef:
+                    nullable: true
+                    properties:
+                      key:
+                        type: string
+                      name:
+                        type: string
+                      namespace:
+                        type: string
+                    required:
+                    - key
+                    - name
+                    - namespace
+                    type: object
                   resources:
                     nullable: true
                     properties:

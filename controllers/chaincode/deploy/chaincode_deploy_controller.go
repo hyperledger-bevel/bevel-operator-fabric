@@ -10,6 +10,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/kfsoftware/hlf-operator/controllers/certs"
+	"github.com/kfsoftware/hlf-operator/controllers/certs_vault"
 	"github.com/kfsoftware/hlf-operator/controllers/utils"
 	hlfv1alpha1 "github.com/kfsoftware/hlf-operator/pkg/apis/hlf.kungfusoftware.es/v1alpha1"
 	operatorv1 "github.com/kfsoftware/hlf-operator/pkg/client/clientset/versioned"
@@ -185,12 +186,24 @@ func (r FabricChaincodeDeployReconciler) getCryptoMaterial(ctx context.Context, 
 		if err != nil {
 			return nil, err
 		}
+		enrollSecret := fabricChaincode.Spec.Credentials.Enrollsecret
+		if fabricChaincode.Spec.Credentials.EnrollsecretSecretRef != nil {
+			var vaultConf *hlfv1alpha1.VaultSpecConf
+			if fabricChaincode.Spec.Credentials.Vault != nil {
+				vaultConf = &fabricChaincode.Spec.Credentials.Vault.Vault
+			}
+			value, err := certs_vault.ResolveSecretRefValue(ctx, kubeClientset, fabricChaincode.Spec.Credentials.EnrollsecretSecretRef, vaultConf)
+			if err != nil {
+				return nil, err
+			}
+			enrollSecret = string(value)
+		}
 		tlsCert, tlsKey, tlsRootCert, err := CreateChaincodeCryptoMaterial(
 			fabricChaincode,
 			fabricChaincode.Spec.Credentials.Caname,
 			tlsCAUrl,
 			fabricChaincode.Spec.Credentials.Enrollid,
-			fabricChaincode.Spec.Credentials.Enrollsecret,
+			enrollSecret,
 			string(cacert),
 			fabricChaincode.Spec.Credentials.Csr.Hosts,
 		)

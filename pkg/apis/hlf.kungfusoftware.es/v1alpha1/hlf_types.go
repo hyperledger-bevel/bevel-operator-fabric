@@ -318,6 +318,9 @@ type FabricFSServer struct {
 type FabricPeerCouchDB struct {
 	User     string `json:"user"`
 	Password string `json:"password"`
+	// +optional
+	// +nullable
+	PasswordSecretRef *SecretRefNSKey `json:"passwordSecretRef,omitempty"`
 
 	// +kubebuilder:default:="couchdb"
 	Image string `json:"image"`
@@ -428,6 +431,9 @@ type Component struct {
 	// +optional
 	// +nullable
 	Enrollsecret string `json:"enrollsecret"`
+	// +optional
+	// +nullable
+	EnrollsecretSecretRef *SecretRefNSKey `json:"enrollsecretSecretRef,omitempty"`
 
 	// +optional
 	// +nullable
@@ -477,6 +483,9 @@ type TLSComponent struct {
 	// +optional
 	// +nullable
 	Enrollsecret string `json:"enrollsecret"`
+	// +optional
+	// +nullable
+	EnrollsecretSecretRef *SecretRefNSKey `json:"enrollsecretSecretRef,omitempty"`
 
 	// +optional
 	// +nullable
@@ -782,6 +791,9 @@ type Cors struct {
 type FabricCADatabase struct {
 	Type       string `json:"type"`
 	Datasource string `json:"datasource"`
+	// +optional
+	// +nullable
+	DatasourceSecretRef *SecretRefNSKey `json:"datasourceSecretRef,omitempty"`
 }
 
 type CredentialStore string
@@ -1440,9 +1452,12 @@ type FabricOperationsConsoleCouchDB struct {
 	// +kubebuilder:default:="3.1.1"
 	Tag string `json:"tag"`
 
-	Username string  `json:"username"`
-	Password string  `json:"password"`
-	Storage  Storage `json:"storage"`
+	Username string `json:"username"`
+	Password string `json:"password"`
+	// +optional
+	// +nullable
+	PasswordSecretRef *SecretRefNSKey `json:"passwordSecretRef,omitempty"`
+	Storage           Storage         `json:"storage"`
 
 	// +nullable
 	// +kubebuilder:validation:Optional
@@ -1473,6 +1488,9 @@ type FabricOperationsConsoleAuth struct {
 	Scheme   string `json:"scheme"`
 	Username string `json:"username"`
 	Password string `json:"password"`
+	// +optional
+	// +nullable
+	PasswordSecretRef *SecretRefNSKey `json:"passwordSecretRef,omitempty"`
 }
 
 // FabricOperationsConsoleSpec defines the desired state of FabricOperationsConsole

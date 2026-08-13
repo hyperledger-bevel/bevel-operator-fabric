@@ -112,8 +112,8 @@ func (v *ConfigValidator) validateFabricCAConfig(node *hlfv1alpha1.FabricOrderer
 	if node.Spec.Secret.Enrollment.Component.Enrollid == "" {
 		return errors.New("enrollment ID is required when using kubernetes credential store")
 	}
-	if node.Spec.Secret.Enrollment.Component.Enrollsecret == "" {
-		return errors.New("enrollment secret is required when using kubernetes credential store")
+	if node.Spec.Secret.Enrollment.Component.Enrollsecret == "" && node.Spec.Secret.Enrollment.Component.EnrollsecretSecretRef == nil {
+		return errors.New("enrollment secret or secret reference is required when using kubernetes credential store")
 	}
 	return nil
 }
@@ -1070,6 +1070,7 @@ func getCertBytesFromCATLS(client *kubernetes.Clientset, caTls *hlfv1alpha1.Catl
 	}
 	return signCertBytes, nil
 }
+
 // BuildGatewayApiConfig builds the GatewayApi chart config from the CRD spec,
 // applying defaults for empty gateway name and namespace.
 func BuildGatewayApiConfig(spec *hlfv1alpha1.FabricGatewayApi) GatewayApi {
@@ -1626,11 +1627,23 @@ func getEnrollRequestForFabricCA(client *kubernetes.Clientset, enrollment *hlfv1
 		return certs.EnrollUserRequest{}, err
 	}
 	tlsCAUrl := fmt.Sprintf("https://%s:%d", enrollment.Cahost, enrollment.Caport)
+	enrollSecret := enrollment.Enrollsecret
+	if enrollment.EnrollsecretSecretRef != nil {
+		var vaultConf *hlfv1alpha1.VaultSpecConf
+		if enrollment.Vault != nil {
+			vaultConf = &enrollment.Vault.Vault
+		}
+		value, err := certs_vault.ResolveSecretRefValue(context.Background(), client, enrollment.EnrollsecretSecretRef, vaultConf)
+		if err != nil {
+			return certs.EnrollUserRequest{}, err
+		}
+		enrollSecret = string(value)
+	}
 	return certs.EnrollUserRequest{
 		Hosts:   []string{},
 		CN:      "",
 		User:    enrollment.Enrollid,
-		Secret:  enrollment.Enrollsecret,
+		Secret:  enrollSecret,
 		URL:     tlsCAUrl,
 		Name:    enrollment.Caname,
 		MSPID:   spec.MspID,
@@ -1658,12 +1671,24 @@ func getEnrollRequestForFabricCATLS(client *kubernetes.Clientset, enrollment *hl
 	if spec.AdminTraefik != nil {
 		hosts = append(hosts, spec.AdminTraefik.Hosts...)
 	}
+	enrollSecret := enrollment.Enrollsecret
+	if enrollment.EnrollsecretSecretRef != nil {
+		var vaultConf *hlfv1alpha1.VaultSpecConf
+		if enrollment.Vault != nil {
+			vaultConf = &enrollment.Vault.Vault
+		}
+		value, err := certs_vault.ResolveSecretRefValue(context.Background(), client, enrollment.EnrollsecretSecretRef, vaultConf)
+		if err != nil {
+			return certs.EnrollUserRequest{}, err
+		}
+		enrollSecret = string(value)
+	}
 	return certs.EnrollUserRequest{
 		Hosts:      hosts,
 		CN:         enrollment.Enrollid,
 		Attributes: nil,
 		User:       enrollment.Enrollid,
-		Secret:     enrollment.Enrollsecret,
+		Secret:     enrollSecret,
 		URL:        tlsCAUrl,
 		Name:       enrollment.Caname,
 		MSPID:      spec.MspID,

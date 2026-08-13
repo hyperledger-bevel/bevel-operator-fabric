@@ -158,7 +158,51 @@ func TestValidatePeer(t *testing.T) {
 				nil,
 			),
 			expectError: true,
-			errorMsg:    "enrollment secret is required",
+			errorMsg:    "enrollment secret or secret reference is required",
+		},
+		{
+			name: "Kubernetes store with enroll secret reference only (no inline secret)",
+			peer: func() *hlfv1alpha1.FabricPeer {
+				p := newTestPeer(
+					hlfv1alpha1.CredentialStoreKubernetes,
+					"Org1MSP",
+					"ca.example.com",
+					"peerAdmin",
+					"", // no inline secret
+					"5Gi",
+					nil,
+					nil,
+				)
+				p.Spec.Secret.Enrollment.Component.EnrollsecretSecretRef = &hlfv1alpha1.SecretRefNSKey{
+					Name:      "peer-enroll-secret",
+					Namespace: "default",
+					Key:       "secret",
+				}
+				return p
+			}(),
+			expectError: false,
+		},
+		{
+			name: "Kubernetes store with both inline secret and secret reference",
+			peer: func() *hlfv1alpha1.FabricPeer {
+				p := newTestPeer(
+					hlfv1alpha1.CredentialStoreKubernetes,
+					"Org1MSP",
+					"ca.example.com",
+					"peerAdmin",
+					"peerAdminpw", // inline secret present
+					"5Gi",
+					nil,
+					nil,
+				)
+				p.Spec.Secret.Enrollment.Component.EnrollsecretSecretRef = &hlfv1alpha1.SecretRefNSKey{
+					Name:      "peer-enroll-secret",
+					Namespace: "default",
+					Key:       "secret",
+				}
+				return p
+			}(),
+			expectError: false,
 		},
 		{
 			name: "Missing MSP ID",

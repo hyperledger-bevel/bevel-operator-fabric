@@ -10,13 +10,14 @@ package v1alpha1
 // ComponentApplyConfiguration represents a declarative configuration of the Component type for use
 // with apply.
 type ComponentApplyConfiguration struct {
-	Cahost       *string                                `json:"cahost,omitempty"`
-	Caname       *string                                `json:"caname,omitempty"`
-	Caport       *int                                   `json:"caport,omitempty"`
-	Catls        *CatlsApplyConfiguration               `json:"catls,omitempty"`
-	Enrollid     *string                                `json:"enrollid,omitempty"`
-	Enrollsecret *string                                `json:"enrollsecret,omitempty"`
-	External     *ExternalCertificateApplyConfiguration `json:"external,omitempty"`
+	Cahost                *string                                `json:"cahost,omitempty"`
+	Caname                *string                                `json:"caname,omitempty"`
+	Caport                *int                                   `json:"caport,omitempty"`
+	Catls                 *CatlsApplyConfiguration               `json:"catls,omitempty"`
+	Enrollid              *string                                `json:"enrollid,omitempty"`
+	Enrollsecret          *string                                `json:"enrollsecret,omitempty"`
+	EnrollsecretSecretRef *SecretRefNSKeyApplyConfiguration      `json:"enrollsecretSecretRef,omitempty"`
+	External              *ExternalCertificateApplyConfiguration `json:"external,omitempty"`
 }
 
 // ComponentApplyConfiguration constructs a declarative configuration of the Component type for use with
@@ -70,6 +71,14 @@ func (b *ComponentApplyConfiguration) WithEnrollid(value string) *ComponentApply
 // If called multiple times, the Enrollsecret field is set to the value of the last call.
 func (b *ComponentApplyConfiguration) WithEnrollsecret(value string) *ComponentApplyConfiguration {
 	b.Enrollsecret = &value
+	return b
+}
+
+// WithEnrollsecretSecretRef sets the EnrollsecretSecretRef field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the EnrollsecretSecretRef field is set to the value of the last call.
+func (b *ComponentApplyConfiguration) WithEnrollsecretSecretRef(value *SecretRefNSKeyApplyConfiguration) *ComponentApplyConfiguration {
+	b.EnrollsecretSecretRef = value
 	return b
 }
 

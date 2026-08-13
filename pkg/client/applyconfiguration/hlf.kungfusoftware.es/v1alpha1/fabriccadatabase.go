@@ -10,8 +10,9 @@ package v1alpha1
 // FabricCADatabaseApplyConfiguration represents a declarative configuration of the FabricCADatabase type for use
 // with apply.
 type FabricCADatabaseApplyConfiguration struct {
-	Type       *string `json:"type,omitempty"`
-	Datasource *string `json:"datasource,omitempty"`
+	Type                *string                           `json:"type,omitempty"`
+	Datasource          *string                           `json:"datasource,omitempty"`
+	DatasourceSecretRef *SecretRefNSKeyApplyConfiguration `json:"datasourceSecretRef,omitempty"`
 }
 
 // FabricCADatabaseApplyConfiguration constructs a declarative configuration of the FabricCADatabase type for use with
@@ -33,5 +34,13 @@ func (b *FabricCADatabaseApplyConfiguration) WithType(value string) *FabricCADat
 // If called multiple times, the Datasource field is set to the value of the last call.
 func (b *FabricCADatabaseApplyConfiguration) WithDatasource(value string) *FabricCADatabaseApplyConfiguration {
 	b.Datasource = &value
+	return b
+}
+
+// WithDatasourceSecretRef sets the DatasourceSecretRef field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the DatasourceSecretRef field is set to the value of the last call.
+func (b *FabricCADatabaseApplyConfiguration) WithDatasourceSecretRef(value *SecretRefNSKeyApplyConfiguration) *FabricCADatabaseApplyConfiguration {
+	b.DatasourceSecretRef = value
 	return b
 }

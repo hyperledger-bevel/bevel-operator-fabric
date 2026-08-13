@@ -14,12 +14,13 @@ import (
 // FabricPeerCouchDBApplyConfiguration represents a declarative configuration of the FabricPeerCouchDB type for use
 // with apply.
 type FabricPeerCouchDBApplyConfiguration struct {
-	User            *string                                      `json:"user,omitempty"`
-	Password        *string                                      `json:"password,omitempty"`
-	Image           *string                                      `json:"image,omitempty"`
-	Tag             *string                                      `json:"tag,omitempty"`
-	PullPolicy      *v1.PullPolicy                               `json:"pullPolicy,omitempty"`
-	ExternalCouchDB *FabricPeerExternalCouchDBApplyConfiguration `json:"externalCouchDB,omitempty"`
+	User              *string                                      `json:"user,omitempty"`
+	Password          *string                                      `json:"password,omitempty"`
+	PasswordSecretRef *SecretRefNSKeyApplyConfiguration            `json:"passwordSecretRef,omitempty"`
+	Image             *string                                      `json:"image,omitempty"`
+	Tag               *string                                      `json:"tag,omitempty"`
+	PullPolicy        *v1.PullPolicy                               `json:"pullPolicy,omitempty"`
+	ExternalCouchDB   *FabricPeerExternalCouchDBApplyConfiguration `json:"externalCouchDB,omitempty"`
 }
 
 // FabricPeerCouchDBApplyConfiguration constructs a declarative configuration of the FabricPeerCouchDB type for use with
@@ -41,6 +42,14 @@ func (b *FabricPeerCouchDBApplyConfiguration) WithUser(value string) *FabricPeer
 // If called multiple times, the Password field is set to the value of the last call.
 func (b *FabricPeerCouchDBApplyConfiguration) WithPassword(value string) *FabricPeerCouchDBApplyConfiguration {
 	b.Password = &value
+	return b
+}
+
+// WithPasswordSecretRef sets the PasswordSecretRef field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the PasswordSecretRef field is set to the value of the last call.
+func (b *FabricPeerCouchDBApplyConfiguration) WithPasswordSecretRef(value *SecretRefNSKeyApplyConfiguration) *FabricPeerCouchDBApplyConfiguration {
+	b.PasswordSecretRef = value
 	return b
 }
 

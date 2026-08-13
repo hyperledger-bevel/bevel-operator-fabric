@@ -120,8 +120,8 @@ func (v *ConfigValidator) validateFabricCAConfig(peer *hlfv1alpha1.FabricPeer) e
 	if peer.Spec.Secret.Enrollment.Component.Enrollid == "" {
 		return errors.New("enrollment ID is required when using kubernetes credential store")
 	}
-	if peer.Spec.Secret.Enrollment.Component.Enrollsecret == "" {
-		return errors.New("enrollment secret is required when using kubernetes credential store")
+	if peer.Spec.Secret.Enrollment.Component.Enrollsecret == "" && peer.Spec.Secret.Enrollment.Component.EnrollsecretSecretRef == nil {
+		return errors.New("enrollment secret or secret reference is required when using kubernetes credential store")
 	}
 	return nil
 }
@@ -988,12 +988,24 @@ func getEnrollRequestForFabricCA(client *kubernetes.Clientset, enrollment *hlfv1
 		return certs.EnrollUserRequest{}, err
 	}
 	tlsCAUrl := fmt.Sprintf("https://%s:%d", enrollment.Cahost, enrollment.Caport)
+	enrollSecret := enrollment.Enrollsecret
+	if enrollment.EnrollsecretSecretRef != nil {
+		var vaultConf *hlfv1alpha1.VaultSpecConf
+		if enrollment.Vault != nil {
+			vaultConf = &enrollment.Vault.Vault
+		}
+		value, err := certs_vault.ResolveSecretRefValue(context.Background(), client, enrollment.EnrollsecretSecretRef, vaultConf)
+		if err != nil {
+			return certs.EnrollUserRequest{}, err
+		}
+		enrollSecret = string(value)
+	}
 	return certs.EnrollUserRequest{
 		Hosts:      []string{},
 		CN:         conf.Name,
 		Attributes: nil,
 		User:       enrollment.Enrollid,
-		Secret:     enrollment.Enrollsecret,
+		Secret:     enrollSecret,
 		URL:        tlsCAUrl,
 		Name:       enrollment.Caname,
 		MSPID:      conf.Spec.MspID,
@@ -1011,12 +1023,24 @@ func getEnrollRequestForFabricCATLS(client *kubernetes.Clientset, enrollment *hl
 	var hosts []string
 	hosts = append(hosts, enrollment.Csr.Hosts...)
 	hosts = append(hosts, ingressHosts...)
+	enrollSecret := enrollment.Enrollsecret
+	if enrollment.EnrollsecretSecretRef != nil {
+		var vaultConf *hlfv1alpha1.VaultSpecConf
+		if enrollment.Vault != nil {
+			vaultConf = &enrollment.Vault.Vault
+		}
+		value, err := certs_vault.ResolveSecretRefValue(context.Background(), client, enrollment.EnrollsecretSecretRef, vaultConf)
+		if err != nil {
+			return certs.EnrollUserRequest{}, err
+		}
+		enrollSecret = string(value)
+	}
 	return certs.EnrollUserRequest{
 		Hosts:      hosts,
 		CN:         enrollment.Enrollid,
 		Attributes: nil,
 		User:       enrollment.Enrollid,
-		Secret:     enrollment.Enrollsecret,
+		Secret:     enrollSecret,
 		URL:        tlsCAUrl,
 		Profile:    profile,
 		Name:       enrollment.Caname,
@@ -1789,6 +1813,14 @@ func GetConfig(
 		CouchDBExporter: spec.Resources.CouchDBExporter,
 		Proxy:           spec.Resources.Proxy,
 	}
+	couchdbPassword := conf.Spec.CouchDB.Password
+	if conf.Spec.CouchDB.PasswordSecretRef != nil {
+		value, err := certs_vault.ResolveSecretRefValue(ctx, client, conf.Spec.CouchDB.PasswordSecretRef, nil)
+		if err != nil {
+			return nil, err
+		}
+		couchdbPassword = string(value)
+	}
 	var c = FabricPeerChart{
 		DeliveryClientaddressOverrides: spec.DeliveryClientaddressOverrides,
 		Volumes:                        spec.Volumes,
@@ -1833,7 +1865,7 @@ func GetConfig(
 			},
 		},
 		ExternalChaincodeBuilder: conf.Spec.ExternalChaincodeBuilder,
-		CouchdbPassword:          conf.Spec.CouchDB.Password,
+		CouchdbPassword:          couchdbPassword,
 		CouchdbUsername:          conf.Spec.CouchDB.User,
 		Rbac:                     RBAC{Ns: namespace},
 		Cert:                     string(signCRTEncoded),

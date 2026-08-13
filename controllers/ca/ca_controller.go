@@ -923,6 +923,14 @@ func GetConfig(conf *hlfv1alpha1.FabricCA, client *kubernetes.Clientset, chartNa
 	if spec.Replicas != nil {
 		replicas = *spec.Replicas
 	}
+	datasource := spec.Database.Datasource
+	if spec.Database.DatasourceSecretRef != nil {
+		value, err := certs_vault.ResolveSecretRefValue(context.Background(), client, spec.Database.DatasourceSecretRef, nil)
+		if err != nil {
+			return nil, err
+		}
+		datasource = string(value)
+	}
 	var c = FabricCAChart{
 		Replicas:         replicas,
 		PodLabels:        spec.PodLabels,
@@ -953,7 +961,7 @@ func GetConfig(conf *hlfv1alpha1.FabricCA, client *kubernetes.Clientset, chartNa
 		Msp: msp,
 		Database: Database{
 			Type:       spec.Database.Type,
-			Datasource: spec.Database.Datasource,
+			Datasource: datasource,
 		},
 		Resources:    spec.Resources,
 		NodeSelector: spec.NodeSelector,

@@ -164,7 +164,53 @@ func TestValidateOrdererNode(t *testing.T) {
 				nil,
 			),
 			expectError: true,
-			errorMsg:    "enrollment secret is required",
+			errorMsg:    "enrollment secret or secret reference is required",
+		},
+		{
+			name: "Kubernetes store with enroll secret reference only (no inline secret)",
+			node: func() *hlfv1alpha1.FabricOrdererNode {
+				n := newTestOrdererNode(
+					hlfv1alpha1.CredentialStoreKubernetes,
+					"Org1MSP",
+					"ca.example.com",
+					"admin",
+					"", // no inline secret
+					"1Gi",
+					1,
+					nil,
+					nil,
+				)
+				n.Spec.Secret.Enrollment.Component.EnrollsecretSecretRef = &hlfv1alpha1.SecretRefNSKey{
+					Name:      "orderer-enroll-secret",
+					Namespace: "default",
+					Key:       "secret",
+				}
+				return n
+			}(),
+			expectError: false,
+		},
+		{
+			name: "Kubernetes store with both inline secret and secret reference",
+			node: func() *hlfv1alpha1.FabricOrdererNode {
+				n := newTestOrdererNode(
+					hlfv1alpha1.CredentialStoreKubernetes,
+					"Org1MSP",
+					"ca.example.com",
+					"admin",
+					"adminpw", // inline secret present
+					"1Gi",
+					1,
+					nil,
+					nil,
+				)
+				n.Spec.Secret.Enrollment.Component.EnrollsecretSecretRef = &hlfv1alpha1.SecretRefNSKey{
+					Name:      "orderer-enroll-secret",
+					Namespace: "default",
+					Key:       "secret",
+				}
+				return n
+			}(),
+			expectError: false,
 		},
 		{
 			name: "Missing MSP ID (networking validation)",

@@ -14,16 +14,17 @@ import (
 // FabricOperationsConsoleCouchDBApplyConfiguration represents a declarative configuration of the FabricOperationsConsoleCouchDB type for use
 // with apply.
 type FabricOperationsConsoleCouchDBApplyConfiguration struct {
-	Image            *string                    `json:"image,omitempty"`
-	Tag              *string                    `json:"tag,omitempty"`
-	Username         *string                    `json:"username,omitempty"`
-	Password         *string                    `json:"password,omitempty"`
-	Storage          *StorageApplyConfiguration `json:"storage,omitempty"`
-	Resources        *v1.ResourceRequirements   `json:"resources,omitempty"`
-	ImagePullSecrets []v1.LocalObjectReference  `json:"imagePullSecrets,omitempty"`
-	Affinity         *v1.Affinity               `json:"affinity,omitempty"`
-	Tolerations      []v1.Toleration            `json:"tolerations,omitempty"`
-	ImagePullPolicy  *v1.PullPolicy             `json:"imagePullPolicy,omitempty"`
+	Image             *string                           `json:"image,omitempty"`
+	Tag               *string                           `json:"tag,omitempty"`
+	Username          *string                           `json:"username,omitempty"`
+	Password          *string                           `json:"password,omitempty"`
+	PasswordSecretRef *SecretRefNSKeyApplyConfiguration `json:"passwordSecretRef,omitempty"`
+	Storage           *StorageApplyConfiguration        `json:"storage,omitempty"`
+	Resources         *v1.ResourceRequirements          `json:"resources,omitempty"`
+	ImagePullSecrets  []v1.LocalObjectReference         `json:"imagePullSecrets,omitempty"`
+	Affinity          *v1.Affinity                      `json:"affinity,omitempty"`
+	Tolerations       []v1.Toleration                   `json:"tolerations,omitempty"`
+	ImagePullPolicy   *v1.PullPolicy                    `json:"imagePullPolicy,omitempty"`
 }
 
 // FabricOperationsConsoleCouchDBApplyConfiguration constructs a declarative configuration of the FabricOperationsConsoleCouchDB type for use with
@@ -61,6 +62,14 @@ func (b *FabricOperationsConsoleCouchDBApplyConfiguration) WithUsername(value st
 // If called multiple times, the Password field is set to the value of the last call.
 func (b *FabricOperationsConsoleCouchDBApplyConfiguration) WithPassword(value string) *FabricOperationsConsoleCouchDBApplyConfiguration {
 	b.Password = &value
+	return b
+}
+
+// WithPasswordSecretRef sets the PasswordSecretRef field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the PasswordSecretRef field is set to the value of the last call.
+func (b *FabricOperationsConsoleCouchDBApplyConfiguration) WithPasswordSecretRef(value *SecretRefNSKeyApplyConfiguration) *FabricOperationsConsoleCouchDBApplyConfiguration {
+	b.PasswordSecretRef = value
 	return b
 }
 

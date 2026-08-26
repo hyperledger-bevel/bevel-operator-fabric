@@ -166,6 +166,20 @@ func addFileToTar(tw *tar.Writer, filename string) error {
 	}
 
 	header.Name = filepath.Base(filename)
+	// Canonicalize everything that comes from the filesystem rather than the
+	// package contents. The package ID is label + SHA256 over the raw archive
+	// bytes, headers included; the temp files are rewritten on every reconcile,
+	// so filesystem-derived header fields (most visibly ModTime, with its
+	// 1-second resolution) made the package ID non-deterministic for an
+	// identical spec. See #323.
+	header.ModTime = time.Unix(0, 0)
+	header.AccessTime = time.Time{}
+	header.ChangeTime = time.Time{}
+	header.Uid = 0
+	header.Gid = 0
+	header.Uname = ""
+	header.Gname = ""
+	header.Mode = 0o644
 
 	if err := tw.WriteHeader(header); err != nil {
 		return err

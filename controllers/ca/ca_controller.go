@@ -46,6 +46,7 @@ import (
 	"k8s.io/client-go/rest"
 
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -1009,7 +1010,11 @@ func GetCAState(clientSet *kubernetes.Clientset, ca *hlfv1alpha1.FabricCA, relea
 	depName := GetDeploymentName(releaseName)
 	dep, err := clientSet.AppsV1().Deployments(ns).Get(ctx, depName, v1.GetOptions{})
 	if err != nil {
-		return nil, err
+		if !apierrors.IsNotFound(err) {
+			return nil, err
+		}
+		// deleted out of band: report pending so that the Helm upgrade recreates it
+		dep = nil
 	}
 	pods, err := clientSet.CoreV1().Pods(ns).List(ctx, v1.ListOptions{
 		LabelSelector: fmt.Sprintf("release=%s", releaseName),
@@ -1034,7 +1039,7 @@ func GetCAState(clientSet *kubernetes.Clientset, ca *hlfv1alpha1.FabricCA, relea
 				}
 			}
 		}
-	} else {
+	} else if dep != nil {
 		replicas := 1
 		if ca.Spec.Replicas != nil {
 			replicas = *ca.Spec.Replicas
@@ -1455,6 +1460,10 @@ func (r *FabricCAReconciler) SetupWithManager(mgr ctrl.Manager, maxConcurrentRec
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&hlfv1alpha1.FabricCA{}).
 		Owns(&appsv1.Deployment{}).
+		Watches(&appsv1.Deployment{}, utils.EnqueueHelmReleaseOwner(),
+			builder.WithPredicates(utils.HelmChartObjectDeleted("hlf-ca"))).
+		Watches(&corev1.PersistentVolumeClaim{}, utils.EnqueueHelmReleaseOwner(),
+			builder.WithPredicates(utils.HelmChartObjectDeleted("hlf-ca"))).
 		WithOptions(controller.Options{
 			MaxConcurrentReconciles: maxConcurrentReconciles,
 		}).

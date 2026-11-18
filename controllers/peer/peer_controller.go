@@ -21,6 +21,7 @@ import (
 
 	operatorv1 "github.com/kfsoftware/hlf-operator/pkg/client/clientset/versioned"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 
 	"github.com/kfsoftware/hlf-operator/pkg/status"
@@ -1901,6 +1902,10 @@ func (r *FabricPeerReconciler) SetupWithManager(mgr ctrl.Manager, maxConcurrentR
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&hlfv1alpha1.FabricPeer{}).
 		Owns(&appsv1.Deployment{}).
+		Watches(&appsv1.Deployment{}, utils.EnqueueHelmReleaseOwner(),
+			builder.WithPredicates(utils.HelmChartObjectDeleted(chartName))).
+		Watches(&corev1.PersistentVolumeClaim{}, utils.EnqueueHelmReleaseOwner(),
+			builder.WithPredicates(utils.HelmChartObjectDeleted(chartName))).
 		WithOptions(controller.Options{
 			MaxConcurrentReconciles: maxConcurrentReconciles,
 		}).

@@ -745,6 +745,29 @@ func BuildIstioConfig(spec *hlfv1alpha1.FabricIstio) Istio {
 	}
 }
 
+// BuildMetricsConfig builds the metrics chart config from the CRD spec.
+// spec.metrics.statsd is optional, so defaults are used when it is omitted.
+func BuildMetricsConfig(spec hlfv1alpha1.FabricCAMetrics) FabricCAChartMetrics {
+	statsd := FabricCAChartMetricsStatsd{
+		Network:       "udp",
+		Address:       "127.0.0.1:8125",
+		WriteInterval: "10s",
+		Prefix:        "server",
+	}
+	if spec.Statsd != nil {
+		statsd = FabricCAChartMetricsStatsd{
+			Network:       spec.Statsd.Network,
+			Address:       spec.Statsd.Address,
+			WriteInterval: spec.Statsd.WriteInterval,
+			Prefix:        spec.Statsd.Prefix,
+		}
+	}
+	return FabricCAChartMetrics{
+		Provider: spec.Provider,
+		Statsd:   statsd,
+	}
+}
+
 // BuildGatewayApiConfig builds the GatewayApi chart config from the CRD spec.
 func BuildGatewayApiConfig(spec *hlfv1alpha1.FabricGatewayApi) GatewayApi {
 	if spec == nil {
@@ -961,15 +984,7 @@ func GetConfig(conf *hlfv1alpha1.FabricCA, client *kubernetes.Clientset, chartNa
 		Affinity:     spec.Affinity,
 		Debug:        spec.Debug,
 		CLRSizeLimit: spec.CLRSizeLimit,
-		Metrics: FabricCAChartMetrics{
-			Provider: spec.Metrics.Provider,
-			Statsd: FabricCAChartMetricsStatsd{
-				Network:       spec.Metrics.Statsd.Network,
-				Address:       spec.Metrics.Statsd.Address,
-				WriteInterval: spec.Metrics.Statsd.WriteInterval,
-				Prefix:        spec.Metrics.Statsd.Prefix,
-			},
-		},
+		Metrics:      BuildMetricsConfig(spec.Metrics),
 
 		Ca:    mapCRDItemConfToChart(spec.CA),
 		TLSCA: mapCRDItemConfToChart(spec.TLSCA),

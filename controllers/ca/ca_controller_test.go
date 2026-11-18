@@ -207,3 +207,54 @@ func TestBuildGatewayApiConfig(t *testing.T) {
 		})
 	}
 }
+
+func TestBuildMetricsConfig(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    hlfv1alpha1.FabricCAMetrics
+		expected ca.FabricCAChartMetrics
+	}{
+		{
+			name:  "Nil statsd returns defaults",
+			input: hlfv1alpha1.FabricCAMetrics{Provider: "prometheus"},
+			expected: ca.FabricCAChartMetrics{
+				Provider: "prometheus",
+				Statsd: ca.FabricCAChartMetricsStatsd{
+					Network:       "udp",
+					Address:       "127.0.0.1:8125",
+					WriteInterval: "10s",
+					Prefix:        "server",
+				},
+			},
+		},
+		{
+			name: "Statsd is preserved",
+			input: hlfv1alpha1.FabricCAMetrics{
+				Provider: "statsd",
+				Statsd: &hlfv1alpha1.FabricCAMetricsStatsd{
+					Network:       "tcp",
+					Address:       "statsd:8125",
+					WriteInterval: "30s",
+					Prefix:        "ca",
+				},
+			},
+			expected: ca.FabricCAChartMetrics{
+				Provider: "statsd",
+				Statsd: ca.FabricCAChartMetricsStatsd{
+					Network:       "tcp",
+					Address:       "statsd:8125",
+					WriteInterval: "30s",
+					Prefix:        "ca",
+				},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			result := ca.BuildMetricsConfig(tt.input)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}

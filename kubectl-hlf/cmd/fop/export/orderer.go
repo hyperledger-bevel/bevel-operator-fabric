@@ -54,7 +54,7 @@ func (c exportOrdererCmd) run(args []string) error {
 	if err != nil {
 		return err
 	}
-	ordererHostName, adminPort, err := helpers.GetOrdererAdminHostAndPort(clientSet, fabricOrderer.Spec, fabricOrderer.Status)
+	ordererHostName, adminPort, err := helpers.GetOrdererAdminHostAndPort(clientSet, *fabricOrderer)
 	if err != nil {
 		return err
 	}

@@ -78,7 +78,7 @@ func (c *addAnchorPeerCmd) run() error {
 	}
 	cftxGen := configtx.New(cfgBlock)
 	app := cftxGen.Application().Organization(mspID)
-	peerHostName, peerPort, err := helpers.GetPeerHostAndPort(clientSet, adminPeer.Spec, adminPeer.Status)
+	peerHostName, peerPort, err := helpers.GetPeerHostAndPort(clientSet, adminPeer.Object)
 	if err != nil {
 		return err
 	}

@@ -158,6 +158,7 @@ func MapClusterOrdererNode(clientSet *kubernetes.Clientset, ordNode hlfv1alpha1.
 		Status:     ordNode.Status,
 		PublicURL:  publicURL,
 		PrivateURL: privateURL,
+		Item:       ordNode,
 	}, nil
 }
 func GetClusterCAs(clientSet *kubernetes.Clientset, oclient *operatorv1.Clientset, ns string) ([]*ClusterCA, error) {
@@ -219,6 +220,7 @@ func GetClusterOrderers(
 					Status:     ordNode.Status,
 					PublicURL:  publicURL,
 					PrivateURL: privateURL,
+					Item:       ordNode,
 				},
 			)
 		}
@@ -340,6 +342,10 @@ func GetURLForCA(certAuth *ClusterCA) (string, error) {
 	} else if certAuth.Spec.Traefik != nil && len(certAuth.Spec.Traefik.Hosts) > 0 {
 		host = certAuth.Spec.Traefik.Hosts[0]
 		port = 443
+	} else if certAuth.Status.NodePort == 0 {
+		// not exposed through a NodePort (e.g. ClusterIP service), use the in-cluster address
+		host = fmt.Sprintf("%s.%s", certAuth.Item.Name, certAuth.Item.Namespace)
+		port = 7054
 	} else {
 		client, err := GetKubeClient()
 		if err != nil {
@@ -407,13 +413,14 @@ func GetOrdererPublicURL(clientset *kubernetes.Clientset, node hlfv1alpha1.Fabri
 	return fmt.Sprintf("%s:%d", hostPort.Host, hostPort.Port), nil
 }
 func GetAdminOrdererPublicURL(clientset *kubernetes.Clientset, node hlfv1alpha1.FabricOrdererNode) (string, error) {
-	host, port, err := GetOrdererAdminHostAndPort(clientset, node.Spec, node.Status)
+	host, port, err := GetOrdererAdminHostAndPort(clientset, node)
 	if err != nil {
 		return "", err
 	}
 	return fmt.Sprintf("https://%s:%d", host, port), nil
 }
-func GetOrdererHostAndPort(clientset *kubernetes.Clientset, nodeSpec hlfv1alpha1.FabricOrdererNodeSpec, nodeStatus hlfv1alpha1.FabricOrdererNodeStatus) (string, int, error) {
+func GetOrdererHostAndPort(clientset *kubernetes.Clientset, node hlfv1alpha1.FabricOrdererNode) (string, int, error) {
+	nodeSpec, nodeStatus := node.Spec, node.Status
 	var hostName string
 	var err error
 	var ordererPort int
@@ -423,6 +430,10 @@ func GetOrdererHostAndPort(clientset *kubernetes.Clientset, nodeSpec hlfv1alpha1
 	} else if nodeSpec.Traefik != nil && len(nodeSpec.Traefik.Hosts) > 0 {
 		hostName = nodeSpec.Traefik.Hosts[0]
 		ordererPort = 443
+	} else if nodeStatus.NodePort == 0 {
+		// not exposed through a NodePort (e.g. ClusterIP service), use the in-cluster address
+		hostName = fmt.Sprintf("%s.%s", node.Name, node.Namespace)
+		ordererPort = 7050
 	} else {
 		hostName, err = utils.GetPublicIPKubernetes(clientset)
 		if err != nil {
@@ -432,19 +443,23 @@ func GetOrdererHostAndPort(clientset *kubernetes.Clientset, nodeSpec hlfv1alpha1
 	}
 	return hostName, ordererPort, nil
 }
-func GetPeerHostAndPort(clientset *kubernetes.Clientset, nodeSpec hlfv1alpha1.FabricPeerSpec, nodeStatus hlfv1alpha1.FabricPeerStatus) (string, int, error) {
+func GetPeerHostAndPort(clientset *kubernetes.Clientset, node hlfv1alpha1.FabricPeer) (string, int, error) {
+	nodeSpec, nodeStatus := node.Spec, node.Status
+	if nodeSpec.Istio != nil && len(nodeSpec.Istio.Hosts) > 0 {
+		return nodeSpec.Istio.Hosts[0], nodeSpec.Istio.Port, nil
+	}
+	if nodeStatus.NodePort == 0 {
+		// not exposed through a NodePort (e.g. ClusterIP service), use the in-cluster address
+		return fmt.Sprintf("%s.%s", node.Name, node.Namespace), 7051, nil
+	}
 	hostName, err := utils.GetPublicIPKubernetes(clientset)
 	if err != nil {
 		return "", 0, err
 	}
-	ordererPort := nodeStatus.NodePort
-	if len(nodeSpec.Istio.Hosts) > 0 {
-		hostName = nodeSpec.Istio.Hosts[0]
-		ordererPort = nodeSpec.Istio.Port
-	}
-	return hostName, ordererPort, nil
+	return hostName, nodeStatus.NodePort, nil
 }
-func GetOrdererAdminHostAndPort(clientset *kubernetes.Clientset, nodeSpec hlfv1alpha1.FabricOrdererNodeSpec, nodeStatus hlfv1alpha1.FabricOrdererNodeStatus) (string, int, error) {
+func GetOrdererAdminHostAndPort(clientset *kubernetes.Clientset, node hlfv1alpha1.FabricOrdererNode) (string, int, error) {
+	nodeSpec, nodeStatus := node.Spec, node.Status
 	var hostName string
 	var err error
 	var ordererPort int
@@ -454,6 +469,10 @@ func GetOrdererAdminHostAndPort(clientset *kubernetes.Clientset, nodeSpec hlfv1a
 	} else if nodeSpec.AdminTraefik != nil && len(nodeSpec.AdminTraefik.Hosts) > 0 {
 		hostName = nodeSpec.AdminTraefik.Hosts[0]
 		ordererPort = 443
+	} else if nodeStatus.AdminPort == 0 {
+		// not exposed through a NodePort (e.g. ClusterIP service), use the in-cluster address
+		hostName = fmt.Sprintf("%s.%s", node.Name, node.Namespace)
+		ordererPort = 7053
 	} else {
 		hostName, err = utils.GetPublicIPKubernetes(clientset)
 		if err != nil {
@@ -505,6 +524,13 @@ func GetPeerHostPort(clientset *kubernetes.Clientset, node hlfv1alpha1.FabricPee
 			Port: node.Spec.GatewayApi.Port,
 		}, nil
 	}
+	if node.Status.NodePort == 0 {
+		// not exposed through a NodePort (e.g. ClusterIP service), use the in-cluster address
+		return &HostPort{
+			Host: fmt.Sprintf("%s.%s", node.Name, node.Namespace),
+			Port: 7051,
+		}, nil
+	}
 	k8sIP, err := utils.GetPublicIPKubernetes(clientset)
 	if err != nil {
 		return nil, err
@@ -537,6 +563,13 @@ func GetOrdererHostPort(clientset *kubernetes.Clientset, node hlfv1alpha1.Fabric
 			Port: node.Spec.GatewayApi.Port,
 		}, nil
 	}
+	if node.Status.NodePort == 0 {
+		// not exposed through a NodePort (e.g. ClusterIP service), use the in-cluster address
+		return &HostPort{
+			Host: fmt.Sprintf("%s.%s", node.Name, node.Namespace),
+			Port: 7050,
+		}, nil
+	}
 	k8sIP, err := utils.GetPublicIPKubernetes(clientset)
 	if err != nil {
 		return nil, err
@@ -564,6 +597,13 @@ func GetCAHostPort(clientset *kubernetes.Clientset, node hlfv1alpha1.FabricCA) (
 		return &HostPort{
 			Host: node.Spec.Traefik.Hosts[0],
 			Port: 443,
+		}, nil
+	}
+	if node.Status.NodePort == 0 {
+		// not exposed through a NodePort (e.g. ClusterIP service), use the in-cluster address
+		return &HostPort{
+			Host: fmt.Sprintf("%s.%s", node.Name, node.Namespace),
+			Port: 7054,
 		}, nil
 	}
 	k8sIP, err := utils.GetPublicIPKubernetes(clientset)

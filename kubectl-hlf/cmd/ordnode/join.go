@@ -85,7 +85,7 @@ func (c *joinChannelCmd) run() error {
 		return err
 	}
 
-	ordererHostName, adminPort, err := helpers.GetOrdererAdminHostAndPort(clientSet, ordererNode.Spec, ordererNode.Status)
+	ordererHostName, adminPort, err := helpers.GetOrdererAdminHostAndPort(clientSet, ordererNode.Item)
 	if err != nil {
 		return err
 	}

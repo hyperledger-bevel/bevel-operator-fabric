@@ -580,7 +580,7 @@ func (r *FabricMainChannelReconciler) joinInternalOrderers(ctx context.Context, 
 			return errors.Wrapf(err, "failed to get orderer node %s/%s", cc.Namespace, cc.Name)
 		}
 
-		adminHost, adminPort, err := helpers.GetOrdererAdminHostAndPort(clientSet, ordererNode.Spec, ordererNode.Status)
+		adminHost, adminPort, err := helpers.GetOrdererAdminHostAndPort(clientSet, *ordererNode)
 		if err != nil {
 			return errors.Wrapf(err, "failed to get admin host and port for orderer %s/%s", cc.Namespace, cc.Name)
 		}

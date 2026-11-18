@@ -2330,7 +2330,7 @@ type FabricChaincodeCommitSpec struct {
 	PrivateDataCollections []PrivateDataCollection `json:"pdc,omitempty"`
 	// InitRequired is a flag to indicate if the chaincode requires initialization
 	// +optional
-	InitRequired bool `json:"initRequired,omitempty"`
+	InitRequired bool `json:"initRequired"`
 	// HLFIdentity is the identity to use for the approve transaction
 	HLFIdentity HLFIdentity `json:"hlfIdentity"`
 	// MSPID is the MSP ID of the organization approving the chaincode

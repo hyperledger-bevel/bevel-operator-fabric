@@ -40,6 +40,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -608,6 +609,10 @@ func (r *FabricOrdererNodeReconciler) SetupWithManager(mgr ctrl.Manager, maxReco
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&hlfv1alpha1.FabricOrdererNode{}).
 		Owns(&appsv1.Deployment{}).
+		Watches(&appsv1.Deployment{}, utils.EnqueueHelmReleaseOwner(),
+			builder.WithPredicates(utils.HelmChartObjectDeleted("hlf-ordnode"))).
+		Watches(&corev1.PersistentVolumeClaim{}, utils.EnqueueHelmReleaseOwner(),
+			builder.WithPredicates(utils.HelmChartObjectDeleted("hlf-ordnode"))).
 		WithOptions(controller.Options{
 			MaxConcurrentReconciles: maxReconciles,
 		}).

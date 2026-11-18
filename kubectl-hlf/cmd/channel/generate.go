@@ -97,8 +97,7 @@ func (c generateChannelCmd) run() error {
 		}
 		consenterHost, consenterPort, err := helpers.GetOrdererHostAndPort(
 			clientSet,
-			consenter.Spec,
-			consenter.Status,
+			consenter.Item,
 		)
 		if err != nil {
 			return err

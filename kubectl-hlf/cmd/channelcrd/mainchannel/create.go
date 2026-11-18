@@ -117,7 +117,7 @@ func (o Options) mapToFabricMainChannel() (*v1alpha1.FabricMainChannelSpec, erro
 		node := nodes[0]
 		var ordererEndpoints []string
 		for _, ordererNode := range nodes {
-			ordererHost, ordererPort, err := helpers.GetOrdererHostAndPort(clientSet, ordererNode.Spec, ordererNode.Status)
+			ordererHost, ordererPort, err := helpers.GetOrdererHostAndPort(clientSet, ordererNode.Item)
 			if err != nil {
 				return nil, err
 			}

@@ -1605,15 +1605,10 @@ func GetConfig(
 	if spec.ExternalEndpoint != "" {
 		externalEndpoint = spec.ExternalEndpoint
 	} else {
-		requestNodePort, err := getRequestNodePort(svc)
+		externalEndpoint, err = GetDefaultExternalEndpoint(client, svc)
 		if err != nil {
 			return nil, err
 		}
-		publicIP, err := utils.GetPublicIPKubernetes(client)
-		if err != nil {
-			return nil, err
-		}
-		externalEndpoint = fmt.Sprintf("%s:%d", publicIP, requestNodePort)
 	}
 
 	gossipExternalEndpoint := spec.Gossip.ExternalEndpoint
@@ -1954,6 +1949,24 @@ const PeerPortName443 = "peer-443"
 const ChaincodePortName = "chaincode"
 const EventPortName = "event"
 const OperationsPortName = "operations"
+
+// GetDefaultExternalEndpoint returns the peer endpoint used when spec.externalEndpoint is empty:
+// <node IP>:<NodePort>, or the in-cluster service address when the service has no NodePort
+// (e.g. ClusterIP).
+func GetDefaultExternalEndpoint(client *kubernetes.Clientset, svc *corev1.Service) (string, error) {
+	requestNodePort, err := getRequestNodePort(svc)
+	if err != nil {
+		return "", err
+	}
+	if requestNodePort == 0 {
+		return fmt.Sprintf("%s.%s:%d", svc.Name, svc.Namespace, 7051), nil
+	}
+	publicIP, err := utils.GetPublicIPKubernetes(client)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%s:%d", publicIP, requestNodePort), nil
+}
 
 func getRequestNodePort(svc *corev1.Service) (int, error) {
 	for _, port := range svc.Spec.Ports {

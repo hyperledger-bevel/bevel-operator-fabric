@@ -300,6 +300,10 @@ func (c *createCmd) run() error {
 		} else if len(certAuth.Spec.GatewayApi.Hosts) > 0 {
 			caHost = certAuth.Spec.GatewayApi.Hosts[0]
 			caPort = certAuth.Spec.GatewayApi.Port
+		} else if caPort == 0 {
+			// not exposed through a NodePort (e.g. ClusterIP service), use the in-cluster address
+			caHost = fmt.Sprintf("%s.%s", certAuth.Item.Name, certAuth.Item.Namespace)
+			caPort = 7054
 		}
 		if c.peerOpts.CAHost != "" {
 			caHost = c.peerOpts.CAHost
